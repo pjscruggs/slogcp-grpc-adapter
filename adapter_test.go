@@ -196,6 +196,51 @@ func TestDefaultLevelMapper(t *testing.T) {
 	}
 }
 
+// TestLoggerSupportsAllSlogcpSeverities verifies that the adapter can forward
+// every slogcp-defined GCP severity level by treating logging.Level as a
+// numeric severity compatible with slogcp.Level.
+func TestLoggerSupportsAllSlogcpSeverities(t *testing.T) {
+	rec := &recordingHandler{}
+	logger := NewLogger(nil, WithLogger(slog.New(rec)))
+
+	type sevCase struct {
+		name  string
+		level slogcp.Level
+	}
+
+	cases := []sevCase{
+		{name: "debug", level: slogcp.LevelDebug},
+		{name: "info", level: slogcp.LevelInfo},
+		{name: "notice", level: slogcp.LevelNotice},
+		{name: "warn", level: slogcp.LevelWarn},
+		{name: "error", level: slogcp.LevelError},
+		{name: "critical", level: slogcp.LevelCritical},
+		{name: "alert", level: slogcp.LevelAlert},
+		{name: "emergency", level: slogcp.LevelEmergency},
+		{name: "default", level: slogcp.LevelDefault},
+	}
+
+	ctx := context.Background()
+	for _, tc := range cases {
+		grpcLevel := grpc_logging.Level(tc.level.Level())
+		logger.Log(ctx, grpcLevel, tc.name)
+	}
+
+	if len(rec.records) != len(cases) {
+		t.Fatalf("expected %d records, got %d", len(cases), len(rec.records))
+	}
+
+	for i, tc := range cases {
+		r := rec.records[i]
+		if r.Message != tc.name {
+			t.Fatalf("record %d message = %q, want %q", i, r.Message, tc.name)
+		}
+		if r.Level != tc.level.Level() {
+			t.Fatalf("record %d level = %v, want %v", i, r.Level, tc.level.Level())
+		}
+	}
+}
+
 // TestLoggerHandlesNilReceiver ensures Log tolerates nil logger and receiver safely.
 func TestLoggerHandlesNilReceiver(t *testing.T) {
 	defer func() {
