@@ -1,0 +1,200 @@
+name: Validation Pipeline
+on:
+  pull_request:
+    branches: [ main ]
+  merge_group:
+    branches: [ main ]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: write
+  pull-requests: write
+  security-events: write
+  checks: write
+
+jobs:
+  validation:
+    name: Fix and Validate Code
+    runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: auto
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine branch name
+        id: get-branch
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            echo "BRANCH_NAME=$PR_HEAD_REF" >> "$GITHUB_OUTPUT"
+          else
+            echo "BRANCH_NAME=${GITHUB_REF#refs/heads/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Determine Go version
+        id: go-version
+        run: |
+          GO_VERSION=$(grep '^go ' go.mod | awk '{print $2}')
+          if [ -z "$GO_VERSION" ]; then
+            echo "Unable to determine Go version from go.mod" >&2
+            exit 1
+          fi
+          GO_VERSION="$GO_VERSION" python3 .github/scripts/resolve_go_version.py
+
+      - name: Set up Go
+        uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6
+        with:
+          go-version: ${{ steps.go-version.outputs.version }}
+          cache: true
+
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@e7fa5ac41e1cf5b7d48e45e42232ce7ada589601 # v9
+        with:
+          version: v2.1.5
+          install-mode: goinstall
+          args: --timeout=5m
+
+      - name: Apply Go Formatting
+        run: |
+          go install golang.org/x/tools/cmd/goimports@latest
+          gofmt -w .
+          goimports -local github.com/pjscruggs/slogcp-grpc-adapter -w .
+
+      - name: Ensure module metadata is tidy
+        run: go mod tidy
+
+      - name: Get current year in US Central Time
+        id: year
+        run: |
+          YEAR=$(TZ='America/Chicago' date +%Y)
+          echo "YEAR=$YEAR" >> $GITHUB_OUTPUT
+
+      - name: Update license year in config
+        run: |
+          if [ "${{ steps.year.outputs.YEAR }}" -gt "2025" ]; then
+            sed -i 's/copyright-year: .*/copyright-year: "2025-${{ steps.year.outputs.YEAR }}"/g' .licenserc.yaml
+            echo "Updated year to 2025-${{ steps.year.outputs.YEAR }}"
+          else
+            echo "Keeping year as 2025"
+          fi
+
+      - name: Fix License Headers
+        id: fix-license
+        uses: apache/skywalking-eyes/header@61275cc80d0798a405cb070f7d3a8aaf7cf2c2c1 # v0.8.0
+        with:
+          mode: fix
+          config: .licenserc.yaml
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Restore Go toolchain (post-license-fix)
+        uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6
+        with:
+          go-version: ${{ steps.go-version.outputs.version }}
+          cache: true
+
+      - name: Apply Lint Fixes
+        run: golangci-lint run --fix ./...
+        continue-on-error: true
+
+      - name: Commit All Fixes
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git diff --quiet || {
+            git add .
+            git commit -m "chore: apply code maintenance (formatting, linting, license headers)"
+            git push origin ${{ steps.get-branch.outputs.BRANCH_NAME }}
+          }
+
+      - name: Re-checkout after fixes if needed
+        run: |
+          if git diff --quiet origin/${{ steps.get-branch.outputs.BRANCH_NAME }} HEAD; then
+            echo "No changes were committed, skipping re-checkout"
+          else
+            echo "Changes were committed, re-checking out latest code"
+            git fetch
+            git checkout origin/${{ steps.get-branch.outputs.BRANCH_NAME }}
+          fi
+
+      - name: Ensure working tree is clean
+        run: |
+          if ! git diff --quiet; then
+            echo "Working tree has uncommitted changes after maintenance steps."
+            git status --short
+            exit 1
+          fi
+
+      - name: Verify Linting
+        run: golangci-lint run ./...
+
+      - name: Verify License Headers
+        uses: apache/skywalking-eyes/header@61275cc80d0798a405cb070f7d3a8aaf7cf2c2c1 # v0.8.0
+        with:
+          mode: check
+          config: .licenserc.yaml
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Restore Go toolchain (pre-tests)
+        uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6
+        with:
+          go-version: ${{ steps.go-version.outputs.version }}
+          cache: true
+
+      - name: Install Go Test Tools
+        run: go install github.com/mfridman/tparse@ba2512e7be150bfcbd6f6220d517d3741f8f2f75
+
+      - name: Run Go Tests
+        if: success()
+        id: go-tests
+        run: |
+          go test -json -race -coverprofile=coverage.out ./... | tparse -all -notests
+
+      - name: Verify Example Modules
+        if: success()
+        run: |
+          set -euo pipefail
+          if [ ! -d ".examples" ]; then
+            echo "No .examples directory found; skipping example verification."
+            exit 0
+          fi
+
+          examples_found=0
+          while IFS= read -r -d '' mod; do
+            examples_found=1
+            dir=$(dirname "$mod")
+            echo "::group::go test $dir"
+            (cd "$dir" && go test ./...)
+            echo "::endgroup::"
+          done < <(find .examples -name go.mod -print0)
+
+          if [ "$examples_found" -eq 0 ]; then
+            echo "No example go.mod files found under .examples; skipping."
+          fi
+
+      - name: Print Coverage Report
+        if: always()
+        run: |
+          echo "--- Test Coverage ---"
+          if [ -f coverage.out ]; then
+            cat coverage.out
+          else
+            echo "Coverage file (coverage.out) not found."
+          fi
+          echo "---------------------"
+
+      - name: Run Vulnerability Check
+        run: |
+          echo "Installing govulncheck..."
+          go install golang.org/x/vuln/cmd/govulncheck@b9d319d7ce41a3991288754d7ec709166dce2619
+          echo "Running vulnerability check..."
+          govulncheck ./...
