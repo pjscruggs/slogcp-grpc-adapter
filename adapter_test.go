@@ -186,8 +186,8 @@ func TestDefaultLevelMapper(t *testing.T) {
 		{"debug", grpc_logging.LevelDebug, slog.LevelDebug},
 		{"info", grpc_logging.LevelInfo, slog.LevelInfo},
 		{"warn", grpc_logging.LevelWarn, slog.LevelWarn},
-		{"error-default", grpc_logging.LevelError, slog.LevelError},
-		{"unknown", grpc_logging.Level(123), slog.LevelError},
+		{"error", grpc_logging.LevelError, slog.LevelError},
+		{"unknown-pass-through", grpc_logging.Level(123), slog.Level(123)},
 	}
 	for _, tt := range tests {
 		if got := defaultLevelMapper(tt.in); got != tt.want {

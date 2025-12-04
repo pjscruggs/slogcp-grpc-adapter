@@ -163,19 +163,11 @@ func StreamClientInterceptor(handler *slogcp.Handler, opts ...grpc_logging.Optio
 }
 
 // defaultLevelMapper converts go-grpc-middleware levels into slog levels.
+// It preserves the numeric value so that custom CodeToLevel functions in
+// go-grpc-middleware can express intermediate severities that line up with
+// slogcp's extended GCP severity levels (NOTICE, CRITICAL, etc.).
 func defaultLevelMapper(level grpc_logging.Level) slog.Level {
-	switch level {
-	case grpc_logging.LevelDebug:
-		return slog.LevelDebug
-	case grpc_logging.LevelInfo:
-		return slog.LevelInfo
-	case grpc_logging.LevelWarn:
-		return slog.LevelWarn
-	case grpc_logging.LevelError:
-		return slog.LevelError
-	default:
-		return slog.LevelError
-	}
+	return slog.Level(level)
 }
 
 // buildAttrs converts logging fields from go-grpc-middleware into slog attributes.
