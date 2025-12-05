@@ -19,6 +19,8 @@ github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3 h1:B+8ClL/kCQkRiU82d9xajR
 github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3/go.mod h1:NbCUVmiS4foBGBHOYlCT25+YmGpJ32dZPi75pGEUpj4=
 github.com/pjscruggs/slogcp v0.1.8-beta h1:WTgEJP6240fxL49LTa0A5hwNGOIa1h2WLrOoQqy+v/E=
 github.com/pjscruggs/slogcp v0.1.8-beta/go.mod h1:SpQeZfLgE55ZqqnplAbZ/ULc7eUKCldyHGzIcFTjrNs=
+github.com/pjscruggs/slogcp v1.0.0 h1:8/skcuHFFLSncReDNDjMQg2GpJVl81Lym85tbmqwQ2E=
+github.com/pjscruggs/slogcp v1.0.0/go.mod h1:JCsjCu8b7UROvXL3UVXlNaBSElIGnAjGY8RvUd32f+0=
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 h1:Jamvg5psRIccs7FGNTlIRMkT8wgtp5eCXdBlqhYGL6U=
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
