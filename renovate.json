@@ -1,0 +1,43 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "config:semverAllWeekly",
+    ":gomod",
+    ":noUnscheduledUpdates",
+    ":automergeMinor",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "timezone": "America/Chicago",
+  "platformAutomerge": true,
+  "postUpdateOptions": [
+    "gomodTidy"
+  ],
+  "packageRules": [
+    {
+      "description": "Keep go directive current",
+      "matchDatasources": ["golang-version"],
+      "rangeStrategy": "bump"
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true,
+      "platformAutomerge": true
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "GitHub Actions",
+      "automerge": true,
+      "platformAutomerge": true
+    },
+    {
+      "matchManagers": ["gomod", "github-actions"],
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    }
+  ],
+  "prHourlyLimit": 0,
+  "prConcurrentLimit": 10
+}
