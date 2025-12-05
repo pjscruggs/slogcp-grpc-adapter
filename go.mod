@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
-	github.com/pjscruggs/slogcp v0.1.8-beta
+	github.com/pjscruggs/slogcp v1.0.0
 	google.golang.org/grpc v1.77.0
 )
 
