@@ -1,6 +1,6 @@
 module github.com/pjscruggs/slogcp-grpc-adapter
 
-go 1.25.0
+go 1.25.7
 
 require (
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
