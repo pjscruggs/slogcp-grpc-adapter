@@ -80,12 +80,8 @@ jobs:
 
       - name: Update license year in config
         run: |
-          if [ "${{ steps.year.outputs.YEAR }}" -gt "2025" ]; then
-            sed -i 's/copyright-year: .*/copyright-year: "2025-${{ steps.year.outputs.YEAR }}"/g' .licenserc.yaml
-            echo "Updated year to 2025-${{ steps.year.outputs.YEAR }}"
-          else
-            echo "Keeping year as 2025"
-          fi
+          sed -i 's/copyright-year: .*/copyright-year: "2025-${{ steps.year.outputs.YEAR }}"/g' .licenserc.yaml
+          echo "Updated year to 2025-${{ steps.year.outputs.YEAR }}"
 
       - name: Fix License Headers
         id: fix-license
