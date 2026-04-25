@@ -61,11 +61,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gcloud builds submit . \
+          gcloud builds submit \
+            --no-source \
             --config=.e2e/cloudbuild/cloudbuild.yaml \
             --project="$GCP_PROJECT_ID" \
             --region="$GCP_REGION" \
-            --substitutions="_GO_VERSION=${{ steps.go-version.outputs.version }}" \
+            --substitutions="_GO_VERSION=${{ steps.go-version.outputs.version }},_REPO_URL=${{ github.server_url }}/${{ github.repository }}.git,_REF=${{ github.sha }}" \
             --quiet
 
       - name: Summarize Adapter E2E
@@ -75,7 +76,6 @@ jobs:
           {
             echo "## Adapter E2E Smoke"
             echo
-            echo "- Project: $GCP_PROJECT_ID"
             echo "- Region: $GCP_REGION"
             echo "- Go version: ${{ steps.go-version.outputs.version }}"
           } >> "$GITHUB_STEP_SUMMARY"
