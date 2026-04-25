@@ -25,10 +25,11 @@ import (
 // discardHandler satisfies slog.Handler while discarding all records.
 type discardHandler struct{}
 
-// Enabled allows all log levels during benchmarks.
+// Enabled reports whether discardHandler accepts a record.
+// It accepts every record so benchmark work reaches Handle.
 func (discardHandler) Enabled(context.Context, slog.Level) bool { return true }
 
-// Handle drops records and avoids allocations.
+// Handle drops a benchmark record without allocation-heavy work.
 func (discardHandler) Handle(context.Context, slog.Record) error { return nil }
 
 // WithAttrs returns a fresh discardHandler for attribute chaining.

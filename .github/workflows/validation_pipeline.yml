@@ -40,6 +40,29 @@ jobs:
             echo "BRANCH_NAME=${GITHUB_REF#refs/heads/}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Determine maintenance reconciliation policy
+        id: maintenance-policy
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_REPO_FULL_NAME: ${{ github.event.pull_request.head.repo.full_name }}
+          REPOSITORY: ${{ github.repository }}
+          BRANCH_NAME: ${{ steps.get-branch.outputs.BRANCH_NAME }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          allow_push=false
+          allow_go_sum_only_drift=false
+
+          if [[ "$EVENT_NAME" == "pull_request" && "$PR_HEAD_REPO_FULL_NAME" == "$REPOSITORY" ]]; then
+            allow_push=true
+            if [[ "$BRANCH_NAME" == renovate/* && ("$PR_AUTHOR" == "app/renovate" || "$PR_AUTHOR" == "renovate[bot]") ]]; then
+              allow_push=false
+              allow_go_sum_only_drift=true
+            fi
+          fi
+
+          echo "allow_push=$allow_push" >> "$GITHUB_OUTPUT"
+          echo "allow_go_sum_only_drift=$allow_go_sum_only_drift" >> "$GITHUB_OUTPUT"
+
       - name: Determine Go version
         id: go-version
         run: |
@@ -61,16 +84,20 @@ jobs:
         with:
           version: v2.1.5
           install-mode: goinstall
-          args: --timeout=5m
+          install-only: true
 
       - name: Apply Go Formatting
         run: |
-          go install golang.org/x/tools/cmd/goimports@latest
+          # renovate: datasource=go depName=golang.org/x/tools versioning=semver
+          go install golang.org/x/tools/cmd/goimports@v0.39.1-0.20251201175718-869ced31773a
           gofmt -w .
           goimports -local github.com/pjscruggs/slogcp-grpc-adapter -w .
 
       - name: Ensure module metadata is tidy
         run: go mod tidy
+
+      - name: Sync example Go directives
+        run: python3 .github/scripts/sync_example_go_versions.py
 
       - name: Get current year in US Central Time
         id: year
@@ -98,11 +125,11 @@ jobs:
           cache: true
 
       - name: Apply Lint Fixes
-        run: golangci-lint run --fix ./...
+        run: golangci-lint run --fix --timeout=5m ./...
         continue-on-error: true
 
       - name: Commit All Fixes
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        if: steps.maintenance-policy.outputs.allow_push == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -113,6 +140,7 @@ jobs:
           }
 
       - name: Re-checkout after fixes if needed
+        if: steps.maintenance-policy.outputs.allow_push == 'true'
         run: |
           if git diff --quiet origin/${{ steps.get-branch.outputs.BRANCH_NAME }} HEAD; then
             echo "No changes were committed, skipping re-checkout"
@@ -124,14 +152,25 @@ jobs:
 
       - name: Ensure working tree is clean
         run: |
-          if ! git diff --quiet; then
-            echo "Working tree has uncommitted changes after maintenance steps."
-            git status --short
-            exit 1
+          if git diff --quiet; then
+            exit 0
           fi
 
+          echo "Working tree has uncommitted changes after maintenance steps."
+          git status --short
+
+          if [[ "${{ steps.maintenance-policy.outputs.allow_go_sum_only_drift }}" == "true" ]]; then
+            NON_GOSUM_CHANGES="$(git diff --name-only | grep -Ev '(^|/)go\.sum$' || true)"
+            if [[ -z "$NON_GOSUM_CHANGES" ]]; then
+              echo "Only go.sum files changed on a protected Renovate branch; continuing without auto-push."
+              exit 0
+            fi
+          fi
+
+          exit 1
+
       - name: Verify Linting
-        run: golangci-lint run ./...
+        run: golangci-lint run --timeout=5m ./...
 
       - name: Verify License Headers
         uses: apache/skywalking-eyes/header@61275cc80d0798a405cb070f7d3a8aaf7cf2c2c1 # v0.8.0
@@ -140,6 +179,12 @@ jobs:
           config: .licenserc.yaml
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify example Go directives
+        run: python3 .github/scripts/sync_example_go_versions.py --check
+
+      - name: Verify Renovate Policy
+        run: python3 .github/scripts/test_renovate_policy.py
+
       - name: Restore Go toolchain (pre-tests)
         uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6
         with:
@@ -147,7 +192,9 @@ jobs:
           cache: true
 
       - name: Install Go Test Tools
-        run: go install github.com/mfridman/tparse@ba2512e7be150bfcbd6f6220d517d3741f8f2f75
+        run: |
+          # renovate: datasource=go depName=github.com/mfridman/tparse versioning=semver
+          go install github.com/mfridman/tparse@v0.18.0
 
       - name: Run Go Tests
         if: success()
@@ -177,6 +224,22 @@ jobs:
             echo "No example go.mod files found under .examples; skipping."
           fi
 
+      - name: Verify Adapter-Owned E2E Smoke Tests
+        if: success()
+        run: |
+          set -euo pipefail
+          if [ ! -f ".e2e/go.mod" ]; then
+            echo "No adapter-owned .e2e module found; skipping smoke tests."
+            exit 0
+          fi
+
+          echo "::group::go test .e2e"
+          (
+            cd .e2e
+            go test -race ./...
+          )
+          echo "::endgroup::"
+
       - name: Print Coverage Report
         if: always()
         run: |
@@ -191,6 +254,29 @@ jobs:
       - name: Run Vulnerability Check
         run: |
           echo "Installing govulncheck..."
-          go install golang.org/x/vuln/cmd/govulncheck@b9d319d7ce41a3991288754d7ec709166dce2619
+          # renovate: datasource=go depName=golang.org/x/vuln versioning=semver
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.5-0.20250813145526-b9d319d7ce41
           echo "Running vulnerability check..."
           govulncheck ./...
+
+  adapter_local_validation_policy:
+    name: Adapter Local Validation Policy
+    needs:
+      - validation
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate adapter local validation result
+        shell: bash
+        env:
+          VALIDATION_RESULT: ${{ needs.validation.result }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$VALIDATION_RESULT" == "success" ]]; then
+            echo "Adapter validation passed."
+            exit 0
+          fi
+
+          echo "Adapter validation result: $VALIDATION_RESULT"
+          exit 1

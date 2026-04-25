@@ -22,9 +22,8 @@ import (
 	"google.golang.org/grpc"
 )
 
-// This example demonstrates wiring slogcp into go-grpc-middleware logging
-// interceptors using the adapter. It builds (and will run if invoked), proving
-// the adapter satisfies the middleware Logger interface.
+// ExampleUnaryServerInterceptor demonstrates wiring slogcp into go-grpc-middleware logging interceptors.
+// It builds and can run, proving the adapter satisfies the middleware Logger interface.
 func ExampleUnaryServerInterceptor() {
 	handler, _ := slogcp.NewHandler(io.Discard)
 

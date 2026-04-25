@@ -1,0 +1,78 @@
+name: Adapter E2E Smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '47 9 * * 2'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  adapter_e2e_smoke:
+    name: Adapter E2E Smoke (GCP)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      GCP_REGION: us-central1
+      GCP_WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER || 'configured-by-secret' }}
+      GCP_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+        with:
+          persist-credentials: false
+
+      - name: Determine Adapter E2E Go Version
+        id: go-version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(awk '$1 == "toolchain" {value = $2} END {print value}' .e2e/go.mod)"
+          if [[ -n "$version" ]]; then
+            version="${version#go}"
+          else
+            version="$(awk '$1 == "go" {print $2; exit}' .e2e/go.mod)"
+          fi
+          if [[ -z "$version" ]]; then
+            echo "Unable to determine Go version from .e2e/go.mod" >&2
+            exit 1
+          fi
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          echo "Adapter E2E Go version: $version"
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+
+      - name: Run Adapter E2E Cloud Build
+        id: cloud-build
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud builds submit . \
+            --config=.e2e/cloudbuild/cloudbuild.yaml \
+            --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" \
+            --substitutions="_GO_VERSION=${{ steps.go-version.outputs.version }}" \
+            --quiet
+
+      - name: Summarize Adapter E2E
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Adapter E2E Smoke"
+            echo
+            echo "- Project: $GCP_PROJECT_ID"
+            echo "- Region: $GCP_REGION"
+            echo "- Go version: ${{ steps.go-version.outputs.version }}"
+          } >> "$GITHUB_STEP_SUMMARY"

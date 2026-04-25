@@ -1,0 +1,18 @@
+timeout: 1200s
+
+substitutions:
+  _GO_VERSION: "1.26.2"
+
+steps:
+  - id: adapter-e2e-test
+    name: "golang:${_GO_VERSION}"
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        cd .e2e
+        go test -race ./...
+
+options:
+  logging: CLOUD_LOGGING_ONLY

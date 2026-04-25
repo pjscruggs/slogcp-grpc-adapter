@@ -29,7 +29,7 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
-// A minimal runnable example that wires slogcp into go-grpc-middleware logging interceptors.
+// main runs a minimal example that wires slogcp into go-grpc-middleware logging interceptors.
 func main() {
 	handler, _ := slogcp.NewHandler(io.Discard)
 

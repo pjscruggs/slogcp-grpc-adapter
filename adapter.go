@@ -24,7 +24,8 @@ import (
 	"google.golang.org/grpc"
 )
 
-// Logger implements go-grpc-middleware's logging.Logger using a slog.Logger built on slogcp.
+// Logger adapts go-grpc-middleware logging calls to a [slog.Logger].
+// The underlying logger is usually backed by a [slogcp.Handler].
 type Logger struct {
 	log      *slog.Logger
 	mapLevel func(grpc_logging.Level) slog.Level
@@ -35,11 +36,11 @@ type loggerConfig struct {
 	levelMapper func(grpc_logging.Level) slog.Level
 }
 
-// LoggerOption customizes adapter construction.
+// LoggerOption configures a [Logger] created by [NewLogger].
 type LoggerOption func(*loggerConfig)
 
-// NewLogger creates an adapter backed by the provided slogcp handler. If no handler
-// or slog.Logger is provided, the default slog logger is used so existing slogcp defaults apply.
+// NewLogger creates a go-grpc-middleware logging adapter.
+// It uses opts first, then the provided [slogcp.Handler], and finally [slog.Default].
 //
 // Example:
 //
@@ -76,7 +77,8 @@ func NewLogger(handler *slogcp.Handler, opts ...LoggerOption) *Logger {
 	}
 }
 
-// WithLogger overrides the slog.Logger used by the adapter, allowing reuse of an existing logger.
+// WithLogger makes [NewLogger] use logger instead of constructing one from a handler.
+// A nil logger is ignored.
 //
 // Example:
 //
@@ -91,7 +93,8 @@ func WithLogger(logger *slog.Logger) LoggerOption {
 	}
 }
 
-// WithLevelMapper customizes how go-grpc-middleware logging levels map to slog levels.
+// WithLevelMapper makes [NewLogger] use mapper to convert go-grpc-middleware levels to slog levels.
+// A nil mapper is ignored.
 func WithLevelMapper(mapper func(grpc_logging.Level) slog.Level) LoggerOption {
 	return func(cfg *loggerConfig) {
 		if mapper != nil {
@@ -100,8 +103,8 @@ func WithLevelMapper(mapper func(grpc_logging.Level) slog.Level) LoggerOption {
 	}
 }
 
-// Log satisfies the go-grpc-middleware logging.Logger interface and forwards entries
-// to the underlying slog.Logger, preserving the provided context for trace propagation.
+// Log forwards one go-grpc-middleware log event to the underlying [slog.Logger].
+// It preserves ctx so slogcp can attach trace correlation fields.
 func (l *Logger) Log(ctx context.Context, level grpc_logging.Level, msg string, fields ...any) {
 	if l == nil || l.log == nil {
 		return
@@ -110,7 +113,7 @@ func (l *Logger) Log(ctx context.Context, level grpc_logging.Level, msg string, 
 	l.log.LogAttrs(ctx, l.mapLevel(level), msg, attrs...)
 }
 
-// UnaryServerInterceptor returns a grpc.UnaryServerInterceptor that logs using slogcp.
+// UnaryServerInterceptor returns a unary server interceptor that logs through slogcp.
 //
 // Example:
 //
@@ -122,7 +125,7 @@ func UnaryServerInterceptor(handler *slogcp.Handler, opts ...grpc_logging.Option
 	return grpc_logging.UnaryServerInterceptor(NewLogger(handler), opts...)
 }
 
-// StreamServerInterceptor returns a grpc.StreamServerInterceptor that logs using slogcp.
+// StreamServerInterceptor returns a stream server interceptor that logs through slogcp.
 //
 // Example:
 //
@@ -134,7 +137,7 @@ func StreamServerInterceptor(handler *slogcp.Handler, opts ...grpc_logging.Optio
 	return grpc_logging.StreamServerInterceptor(NewLogger(handler), opts...)
 }
 
-// UnaryClientInterceptor returns a grpc.UnaryClientInterceptor that logs using slogcp.
+// UnaryClientInterceptor returns a unary client interceptor that logs through slogcp.
 //
 // Example:
 //
@@ -148,7 +151,7 @@ func UnaryClientInterceptor(handler *slogcp.Handler, opts ...grpc_logging.Option
 	return grpc_logging.UnaryClientInterceptor(NewLogger(handler), opts...)
 }
 
-// StreamClientInterceptor returns a grpc.StreamClientInterceptor that logs using slogcp.
+// StreamClientInterceptor returns a stream client interceptor that logs through slogcp.
 //
 // Example:
 //
@@ -170,7 +173,7 @@ func defaultLevelMapper(level grpc_logging.Level) slog.Level {
 	return slog.Level(level)
 }
 
-// buildAttrs converts logging fields from go-grpc-middleware into slog attributes.
+// buildAttrs converts go-grpc-middleware key/value fields into slog attributes.
 func buildAttrs(fields []any) []slog.Attr {
 	if len(fields) == 0 {
 		return nil

@@ -164,3 +164,13 @@ tags
 
 # Ignore scripts directory
 scripts/
+
+# Keep GitHub workflow helper scripts trackable.
+!.github/scripts/
+!.github/scripts/**
+.github/scripts/__pycache__/
+.github/scripts/**/*.pyc
+
+# Keep adapter-owned E2E implementation files trackable.
+!.e2e/
+!.e2e/**

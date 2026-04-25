@@ -1,12 +1,11 @@
-module github.com/pjscruggs/slogcp-grpc-adapter
+module github.com/pjscruggs/slogcp-grpc-adapter-e2e
 
-go 1.26.0
-
-toolchain go1.26.2
+go 1.26.2
 
 require (
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.0.0
 	github.com/pjscruggs/slogcp v1.2.0
+	github.com/pjscruggs/slogcp-grpc-adapter v0.0.0
 	google.golang.org/grpc v1.79.3
 )
 
@@ -26,3 +25,5 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260223185530-2f722ef697dc // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
+
+replace github.com/pjscruggs/slogcp-grpc-adapter => ..

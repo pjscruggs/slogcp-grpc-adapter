@@ -7,7 +7,7 @@ header:
     copyright-owner: "Patrick J. Scruggs"
     first-publication-year: &fp_year "2025"
     copyright-year: "2025-2026"
-    software-name: "slogcp"
+    software-name: "slogcp-grpc-adapter"
 
   paths:
     - '**/*.go'
@@ -16,6 +16,9 @@ header:
     - '**/*.java'
     - '**/*.py'
     - '**/*.sh'
+    - '.github/scripts/**/*.py'
+    - '.e2e/**/*.go'
+    - '.e2e/**/*.sh'
 
   paths-ignore:
     - 'dist'

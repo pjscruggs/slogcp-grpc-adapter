@@ -29,16 +29,17 @@ type recordingHandler struct {
 	records []slog.Record
 }
 
-// Enabled implements slog.Handler and allows all records during testing.
+// Enabled reports whether recordingHandler accepts a record.
+// It accepts every record so tests can inspect all adapter output.
 func (h *recordingHandler) Enabled(context.Context, slog.Level) bool { return true }
 
-// Handle records the slog record for later inspection.
+// Handle stores a clone of r for later test assertions.
 func (h *recordingHandler) Handle(_ context.Context, r slog.Record) error {
 	h.records = append(h.records, r.Clone())
 	return nil
 }
 
-// WithAttrs clones the handler and prepends the supplied attributes as a record.
+// WithAttrs returns a child recordingHandler for slog attribute scoping tests.
 func (h *recordingHandler) WithAttrs(_ []slog.Attr) slog.Handler {
 	r := &recordingHandler{}
 	r.records = append(r.records, slog.Record{
@@ -48,10 +49,10 @@ func (h *recordingHandler) WithAttrs(_ []slog.Attr) slog.Handler {
 	return r
 }
 
-// WithGroup preserves the handler for grouped logging.
+// WithGroup returns h because these tests do not need group-specific state.
 func (h *recordingHandler) WithGroup(string) slog.Handler { return h }
 
-// TestLoggerLogConvertsFields ensures key/value pairs become slog attrs with coerced keys.
+// TestLoggerLogConvertsFields verifies that key/value pairs become slog attributes with coerced keys.
 func TestLoggerLogConvertsFields(t *testing.T) {
 	rec := &recordingHandler{}
 	logger := NewLogger(nil, WithLogger(slog.New(rec)))
@@ -89,7 +90,7 @@ func TestLoggerLogConvertsFields(t *testing.T) {
 	}
 }
 
-// TestLoggerRespectsCustomLevelMapper verifies custom level mapping is used.
+// TestLoggerRespectsCustomLevelMapper verifies that custom level mapping is used.
 func TestLoggerRespectsCustomLevelMapper(t *testing.T) {
 	rec := &recordingHandler{}
 	mapper := func(_ grpc_logging.Level) slog.Level { return slog.LevelWarn }
@@ -105,7 +106,7 @@ func TestLoggerRespectsCustomLevelMapper(t *testing.T) {
 	}
 }
 
-// TestNewLoggerRestoresDefaultMapperWhenNil ensures nil mapper falls back to default mapping.
+// TestNewLoggerRestoresDefaultMapperWhenNil verifies that a nil mapper falls back to default mapping.
 func TestNewLoggerRestoresDefaultMapperWhenNil(t *testing.T) {
 	rec := &recordingHandler{}
 	resetMapper := func(cfg *loggerConfig) { cfg.levelMapper = nil }
@@ -121,7 +122,7 @@ func TestNewLoggerRestoresDefaultMapperWhenNil(t *testing.T) {
 	}
 }
 
-// TestNewLoggerPrefersProvidedLogger confirms WithLogger overrides handler selection.
+// TestNewLoggerPrefersProvidedLogger verifies that WithLogger overrides handler selection.
 func TestNewLoggerPrefersProvidedLogger(t *testing.T) {
 	rec := &recordingHandler{}
 	slogLogger := slog.New(rec)
@@ -142,7 +143,7 @@ func TestNewLoggerPrefersProvidedLogger(t *testing.T) {
 	}
 }
 
-// TestNewLoggerUsesHandlerAndDefaultFallback ensures handler wiring and default logger fallback both work.
+// TestNewLoggerUsesHandlerAndDefaultFallback verifies handler wiring and default logger fallback.
 func TestNewLoggerUsesHandlerAndDefaultFallback(t *testing.T) {
 	handler, err := slogcp.NewHandler(io.Discard)
 	if err != nil {
@@ -169,14 +170,14 @@ func TestNewLoggerUsesHandlerAndDefaultFallback(t *testing.T) {
 	}
 }
 
-// TestBuildAttrsHandlesEmptyFields checks empty slices yield nil attrs.
+// TestBuildAttrsHandlesEmptyFields verifies that empty field slices produce no attributes.
 func TestBuildAttrsHandlesEmptyFields(t *testing.T) {
 	if attrs := buildAttrs(nil); attrs != nil {
 		t.Fatalf("expected nil for empty fields, got %v", attrs)
 	}
 }
 
-// TestDefaultLevelMapper asserts the default mapping for known and unknown levels.
+// TestDefaultLevelMapper verifies the default mapping for known and unknown levels.
 func TestDefaultLevelMapper(t *testing.T) {
 	tests := []struct {
 		name string
@@ -196,9 +197,8 @@ func TestDefaultLevelMapper(t *testing.T) {
 	}
 }
 
-// TestLoggerSupportsAllSlogcpSeverities verifies that the adapter can forward
-// every slogcp-defined GCP severity level by treating logging.Level as a
-// numeric severity compatible with slogcp.Level.
+// TestLoggerSupportsAllSlogcpSeverities verifies every slogcp-defined GCP severity level.
+// The adapter treats logging.Level as a numeric severity compatible with slogcp.Level.
 func TestLoggerSupportsAllSlogcpSeverities(t *testing.T) {
 	rec := &recordingHandler{}
 	logger := NewLogger(nil, WithLogger(slog.New(rec)))
@@ -241,7 +241,7 @@ func TestLoggerSupportsAllSlogcpSeverities(t *testing.T) {
 	}
 }
 
-// TestLoggerHandlesNilReceiver ensures Log tolerates nil logger and receiver safely.
+// TestLoggerHandlesNilReceiver verifies that Log tolerates nil logger state safely.
 func TestLoggerHandlesNilReceiver(t *testing.T) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -256,7 +256,7 @@ func TestLoggerHandlesNilReceiver(t *testing.T) {
 	empty.Log(context.Background(), grpc_logging.LevelInfo, "noop")
 }
 
-// TestInterceptorsConstruct verifies interceptor helpers return non-nil interceptors.
+// TestInterceptorsConstruct verifies that interceptor helpers return non-nil interceptors.
 func TestInterceptorsConstruct(t *testing.T) {
 	handler, err := slogcp.NewHandler(io.Discard)
 	if err != nil {
@@ -276,7 +276,7 @@ func TestInterceptorsConstruct(t *testing.T) {
 	}
 }
 
-// collectAttrs flattens slog record attributes into a map for assertions.
+// collectAttrs returns r's attributes as a map for assertions.
 func collectAttrs(r slog.Record) map[string]any {
 	out := make(map[string]any)
 	r.Attrs(func(a slog.Attr) bool {
