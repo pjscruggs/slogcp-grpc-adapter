@@ -30,12 +30,13 @@ import (
 
 	grpc_logging "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
 	"github.com/pjscruggs/slogcp"
-	slogcpadapter "github.com/pjscruggs/slogcp-grpc-adapter"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/test/bufconn"
+
+	slogcpadapter "github.com/pjscruggs/slogcp-grpc-adapter"
 )
 
 const (

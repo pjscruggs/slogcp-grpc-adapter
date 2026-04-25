@@ -22,11 +22,12 @@ import (
 	"net"
 
 	"github.com/pjscruggs/slogcp"
-	slogcpadapter "github.com/pjscruggs/slogcp-grpc-adapter"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
+
+	slogcpadapter "github.com/pjscruggs/slogcp-grpc-adapter"
 )
 
 // main runs a minimal example that wires slogcp into go-grpc-middleware logging interceptors.
