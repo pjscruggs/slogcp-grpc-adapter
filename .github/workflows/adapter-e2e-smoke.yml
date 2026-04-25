@@ -72,13 +72,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gcloud builds submit \
+          log_file="$(mktemp)"
+          if ! gcloud builds submit \
             --no-source \
             --config=.e2e/cloudbuild/cloudbuild.yaml \
             --project="$GCP_PROJECT_ID" \
             --region="$GCP_REGION" \
             --substitutions="_GO_VERSION=${{ steps.go-version.outputs.version }},_REPO_URL=${{ github.server_url }}/${{ github.repository }}.git,_REF=${{ github.sha }}" \
-            --quiet
+            --quiet >"$log_file" 2>&1; then
+            sed -E \
+              -e 's/projects\/[^/ ]+/projects\/REDACTED/g' \
+              -e 's/serviceAccounts\/[0-9]+/serviceAccounts\/REDACTED/g' \
+              -e 's/[0-9]{12,}/REDACTED/g' \
+              "$log_file" >&2
+            exit 1
+          fi
+          echo "Adapter E2E Cloud Build completed."
 
       - name: Summarize Adapter E2E
         if: always()
