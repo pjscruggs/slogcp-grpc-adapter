@@ -112,7 +112,7 @@ jobs:
 
       - name: Fix License Headers
         id: fix-license
-        uses: apache/skywalking-eyes/header@61275cc80d0798a405cb070f7d3a8aaf7cf2c2c1 # v0.8.0
+        uses: apache/skywalking-eyes/header@e0cc16d0e47f446fbc456d0e670dc50dec09719e # main
         with:
           mode: fix
           config: .licenserc.yaml
@@ -173,7 +173,7 @@ jobs:
         run: golangci-lint run --timeout=5m ./...
 
       - name: Verify License Headers
-        uses: apache/skywalking-eyes/header@61275cc80d0798a405cb070f7d3a8aaf7cf2c2c1 # v0.8.0
+        uses: apache/skywalking-eyes/header@e0cc16d0e47f446fbc456d0e670dc50dec09719e # main
         with:
           mode: check
           config: .licenserc.yaml
