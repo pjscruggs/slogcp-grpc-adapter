@@ -86,6 +86,11 @@ jobs:
           install-mode: goinstall
           install-only: true
 
+      - name: Install license-eye
+        run: |
+          # renovate: datasource=go depName=github.com/apache/skywalking-eyes versioning=semver
+          go install github.com/apache/skywalking-eyes/cmd/license-eye@v0.8.0
+
       - name: Apply Go Formatting
         run: |
           # renovate: datasource=go depName=golang.org/x/tools versioning=semver
@@ -111,18 +116,9 @@ jobs:
           echo "Updated year to 2025-${{ steps.year.outputs.YEAR }}"
 
       - name: Fix License Headers
-        id: fix-license
-        uses: apache/skywalking-eyes/header@e0cc16d0e47f446fbc456d0e670dc50dec09719e # main
-        with:
-          mode: fix
-          config: .licenserc.yaml
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Restore Go toolchain (post-license-fix)
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version: ${{ steps.go-version.outputs.version }}
-          cache: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: license-eye -v info -c .licenserc.yaml header fix
 
       - name: Apply Lint Fixes
         run: golangci-lint run --fix --timeout=5m ./...
@@ -173,23 +169,15 @@ jobs:
         run: golangci-lint run --timeout=5m ./...
 
       - name: Verify License Headers
-        uses: apache/skywalking-eyes/header@e0cc16d0e47f446fbc456d0e670dc50dec09719e # main
-        with:
-          mode: check
-          config: .licenserc.yaml
-          token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: license-eye -v info -c .licenserc.yaml header check
 
       - name: Verify example Go directives
         run: python3 .github/scripts/sync_example_go_versions.py --check
 
       - name: Verify Renovate Policy
         run: python3 .github/scripts/test_renovate_policy.py
-
-      - name: Restore Go toolchain (pre-tests)
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version: ${{ steps.go-version.outputs.version }}
-          cache: true
 
       - name: Install Go Test Tools
         run: |
