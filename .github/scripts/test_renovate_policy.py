@@ -57,13 +57,25 @@ class RenovatePolicyTests(unittest.TestCase):
         self.assertEqual(rule.get("matchFileNames"), [".github/**"])
         self.assertIn("dependency-scope:ci", rule.get("labels", []))
 
-    def test_root_updates_require_dashboard_approval(self) -> None:
+    def test_routine_root_floor_updates_are_disabled(self) -> None:
         rule = self.find_rule(
-            "Normal root Go module dependency updates require maintainer approval from the Dependency Dashboard"
+            "Do not propose routine root go.mod dependency floor updates"
         )
         self.assertEqual(rule.get("matchFileNames"), ["go.mod"])
-        self.assertTrue(rule.get("dependencyDashboardApproval"))
-        self.assertFalse(rule.get("automerge"))
+        self.assertEqual(rule.get("matchDatasources"), ["go"])
+        self.assertEqual(rule.get("matchDepTypes"), ["require"])
+        self.assertFalse(rule.get("enabled"))
+
+    def test_security_floor_updates_are_enabled(self) -> None:
+        rule = self.find_rule(
+            "Security floor updates must not wait for normal root Dependency Dashboard approval"
+        )
+        self.assertEqual(rule.get("matchFileNames"), ["go.mod"])
+        self.assertEqual(rule.get("matchJsonata"), ["$exists(vulnerabilityFixVersion)"])
+        self.assertTrue(rule.get("enabled"))
+        self.assertFalse(rule.get("dependencyDashboardApproval"))
+        self.assertTrue(rule.get("automerge"))
+        self.assertEqual(rule.get("automergeType"), "pr")
 
     def test_root_toolchain_updates_are_automerge(self) -> None:
         rule = self.find_rule(
@@ -85,6 +97,15 @@ class RenovatePolicyTests(unittest.TestCase):
         )
         self.assertFalse(rule.get("enabled"))
 
+    def test_example_dependency_updates_are_automerge(self) -> None:
+        rule = self.find_rule(
+            "Routine latest-compatible updates for checked-in example modules"
+        )
+        self.assertEqual(rule.get("matchFileNames"), [".examples/**"])
+        self.assertTrue(rule.get("automerge"))
+        self.assertEqual(rule.get("automergeType"), "pr")
+        self.assertEqual(rule.get("automergeStrategy"), "squash")
+
     def test_e2e_keeps_local_adapter_requirement_pinned(self) -> None:
         rule = self.find_rule(
             "Do not update the local unpublished adapter requirement used by adapter-owned e2e"
@@ -95,6 +116,15 @@ class RenovatePolicyTests(unittest.TestCase):
             ["github.com/pjscruggs/slogcp-grpc-adapter"],
         )
         self.assertFalse(rule.get("enabled"))
+
+    def test_e2e_dependency_updates_are_automerge(self) -> None:
+        rule = self.find_rule(
+            "Routine latest-compatible updates for adapter-owned e2e modules"
+        )
+        self.assertEqual(rule.get("matchFileNames"), [".e2e/**"])
+        self.assertTrue(rule.get("automerge"))
+        self.assertEqual(rule.get("automergeType"), "pr")
+        self.assertEqual(rule.get("automergeStrategy"), "squash")
 
 
 if __name__ == "__main__":
