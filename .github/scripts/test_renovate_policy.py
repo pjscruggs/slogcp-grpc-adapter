@@ -76,6 +76,7 @@ class RenovatePolicyTests(unittest.TestCase):
         self.assertFalse(rule.get("dependencyDashboardApproval"))
         self.assertTrue(rule.get("automerge"))
         self.assertEqual(rule.get("automergeType"), "pr")
+        self.assertEqual(rule.get("automergeStrategy"), "squash")
 
     def test_root_toolchain_updates_are_automerge(self) -> None:
         rule = self.find_rule(
@@ -106,25 +107,10 @@ class RenovatePolicyTests(unittest.TestCase):
         self.assertEqual(rule.get("automergeType"), "pr")
         self.assertEqual(rule.get("automergeStrategy"), "squash")
 
-    def test_e2e_keeps_local_adapter_requirement_pinned(self) -> None:
-        rule = self.find_rule(
-            "Do not update the local unpublished adapter requirement used by adapter-owned e2e"
-        )
-        self.assertEqual(rule.get("matchFileNames"), [".e2e/**"])
-        self.assertEqual(
-            rule.get("matchPackageNames"),
-            ["github.com/pjscruggs/slogcp-grpc-adapter"],
-        )
-        self.assertFalse(rule.get("enabled"))
-
-    def test_e2e_dependency_updates_are_automerge(self) -> None:
-        rule = self.find_rule(
-            "Routine latest-compatible updates for adapter-owned e2e modules"
-        )
-        self.assertEqual(rule.get("matchFileNames"), [".e2e/**"])
-        self.assertTrue(rule.get("automerge"))
-        self.assertEqual(rule.get("automergeType"), "pr")
-        self.assertEqual(rule.get("automergeStrategy"), "squash")
+    def test_no_adapter_e2e_rules_remain(self) -> None:
+        for rule in self.package_rules:
+            self.assertNotIn(".e2e/**", rule.get("matchFileNames", []))
+            self.assertNotIn(".e2e/**/go.mod", rule.get("matchFileNames", []))
 
 
 if __name__ == "__main__":

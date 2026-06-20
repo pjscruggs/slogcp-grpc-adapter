@@ -1,7 +1,0 @@
-artifacts/
-coverage.out
-generated/
-tmp/
-*.exe
-*.test
-*.test.exe

@@ -8,10 +8,8 @@ on:
   workflow_call:
 
 permissions:
-  contents: write
-  pull-requests: write
-  security-events: write
-  checks: write
+  contents: read
+  pull-requests: read
 
 jobs:
   validation:
@@ -26,42 +24,7 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.ref || github.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Determine branch name
-        id: get-branch
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
-        run: |
-          if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            echo "BRANCH_NAME=$PR_HEAD_REF" >> "$GITHUB_OUTPUT"
-          else
-            echo "BRANCH_NAME=${GITHUB_REF#refs/heads/}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Determine maintenance reconciliation policy
-        id: maintenance-policy
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_HEAD_REPO_FULL_NAME: ${{ github.event.pull_request.head.repo.full_name }}
-          REPOSITORY: ${{ github.repository }}
-          BRANCH_NAME: ${{ steps.get-branch.outputs.BRANCH_NAME }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-        run: |
-          allow_push=false
-          allow_go_sum_only_drift=false
-
-          if [[ "$EVENT_NAME" == "pull_request" && "$PR_HEAD_REPO_FULL_NAME" == "$REPOSITORY" ]]; then
-            allow_push=true
-            if [[ "$BRANCH_NAME" == renovate/* && ("$PR_AUTHOR" == "app/renovate" || "$PR_AUTHOR" == "renovate[bot]") ]]; then
-              allow_push=false
-              allow_go_sum_only_drift=true
-            fi
-          fi
-
-          echo "allow_push=$allow_push" >> "$GITHUB_OUTPUT"
-          echo "allow_go_sum_only_drift=$allow_go_sum_only_drift" >> "$GITHUB_OUTPUT"
+          persist-credentials: false
 
       - name: Determine Go version
         id: go-version
@@ -116,35 +79,11 @@ jobs:
           echo "Updated year to 2025-${{ steps.year.outputs.YEAR }}"
 
       - name: Fix License Headers
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: license-eye -v info -c .licenserc.yaml header fix
 
       - name: Apply Lint Fixes
         run: golangci-lint run --fix --timeout=5m ./...
         continue-on-error: true
-
-      - name: Commit All Fixes
-        if: steps.maintenance-policy.outputs.allow_push == 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git diff --quiet || {
-            git add .
-            git commit -m "chore: apply code maintenance (formatting, linting, license headers)"
-            git push origin ${{ steps.get-branch.outputs.BRANCH_NAME }}
-          }
-
-      - name: Re-checkout after fixes if needed
-        if: steps.maintenance-policy.outputs.allow_push == 'true'
-        run: |
-          if git diff --quiet origin/${{ steps.get-branch.outputs.BRANCH_NAME }} HEAD; then
-            echo "No changes were committed, skipping re-checkout"
-          else
-            echo "Changes were committed, re-checking out latest code"
-            git fetch
-            git checkout origin/${{ steps.get-branch.outputs.BRANCH_NAME }}
-          fi
 
       - name: Ensure working tree is clean
         run: |
@@ -154,23 +93,12 @@ jobs:
 
           echo "Working tree has uncommitted changes after maintenance steps."
           git status --short
-
-          if [[ "${{ steps.maintenance-policy.outputs.allow_go_sum_only_drift }}" == "true" ]]; then
-            NON_GOSUM_CHANGES="$(git diff --name-only | grep -Ev '(^|/)go\.sum$' || true)"
-            if [[ -z "$NON_GOSUM_CHANGES" ]]; then
-              echo "Only go.sum files changed on a protected Renovate branch; continuing without auto-push."
-              exit 0
-            fi
-          fi
-
           exit 1
 
       - name: Verify Linting
         run: golangci-lint run --timeout=5m ./...
 
       - name: Verify License Headers
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: license-eye -v info -c .licenserc.yaml header check
 
       - name: Verify example Go directives
@@ -211,22 +139,6 @@ jobs:
           if [ "$examples_found" -eq 0 ]; then
             echo "No example go.mod files found under .examples; skipping."
           fi
-
-      - name: Verify Adapter-Owned E2E Smoke Tests
-        if: success()
-        run: |
-          set -euo pipefail
-          if [ ! -f ".e2e/go.mod" ]; then
-            echo "No adapter-owned .e2e module found; skipping smoke tests."
-            exit 0
-          fi
-
-          echo "::group::go test .e2e"
-          (
-            cd .e2e
-            go test -race ./...
-          )
-          echo "::endgroup::"
 
       - name: Print Coverage Report
         if: always()

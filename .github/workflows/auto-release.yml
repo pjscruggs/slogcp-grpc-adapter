@@ -1,0 +1,302 @@
+name: Auto Release
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Optional explicit release version, for example v1.0.1.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auto-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Create Signed Tag And Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect Release Intent
+        id: release_intent
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          INPUT_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          should_release=false
+          version="${INPUT_VERSION:-}"
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            should_release=true
+          elif [[ -n "$BEFORE_SHA" && "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]]; then
+            if git diff --quiet "$BEFORE_SHA" "$GITHUB_SHA" -- go.mod go.sum; then
+              echo "No root Go module metadata changed."
+            else
+              pulls_json="$(gh api -H "Accept: application/vnd.github+json" "repos/${REPOSITORY}/commits/${GITHUB_SHA}/pulls")"
+              security_pr_count="$(
+                jq '[.[] | select(any(.labels[]?; .name == "security" or .name == "security:floor" or .name == "renovate:type-security-floor"))] | length' \
+                  <<<"$pulls_json"
+              )"
+              if (( security_pr_count > 0 )); then
+                should_release=true
+              else
+                echo "Root Go module metadata changed, but no associated security-labeled PR was found."
+              fi
+            fi
+          fi
+
+          if [[ "$should_release" != "true" ]]; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "No release intent detected."
+            exit 0
+          fi
+
+          if [[ -z "$version" ]]; then
+            latest="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)"
+            if [[ -z "$latest" ]]; then
+              latest="v0.0.0"
+            fi
+
+            if [[ ! "$latest" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              echo "Unable to parse latest semver tag: $latest" >&2
+              exit 1
+            fi
+
+            major="${BASH_REMATCH[1]}"
+            minor="${BASH_REMATCH[2]}"
+            patch="${BASH_REMATCH[3]}"
+            version="v${major}.${minor}.$((patch + 1))"
+          fi
+
+          if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release version must match vMAJOR.MINOR.PATCH, got: $version" >&2
+            exit 1
+          fi
+
+          tag_exists=false
+          if gh api "repos/${REPOSITORY}/git/ref/tags/${version}" >/dev/null 2>&1; then
+            tag_exists=true
+          fi
+
+          echo "should_release=true" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag_exists=$tag_exists" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Release Configuration
+        if: steps.release_intent.outputs.should_release == 'true'
+        shell: bash
+        env:
+          RELEASE_SSH_PRIVATE_KEY_B64: ${{ secrets.RELEASE_SSH_PRIVATE_KEY_B64 }}
+          RELEASE_SSH_PUBLIC_KEY: ${{ secrets.RELEASE_SSH_PUBLIC_KEY }}
+          RELEASE_SIGNER_EMAIL: ${{ vars.RELEASE_SIGNER_EMAIL }}
+          RELEASE_SIGNER_NAME: ${{ vars.RELEASE_SIGNER_NAME }}
+        run: |
+          set -euo pipefail
+
+          missing=()
+          [[ -n "${RELEASE_SSH_PRIVATE_KEY_B64:-}" ]] || missing+=("RELEASE_SSH_PRIVATE_KEY_B64")
+          [[ -n "${RELEASE_SSH_PUBLIC_KEY:-}" ]] || missing+=("RELEASE_SSH_PUBLIC_KEY")
+          [[ -n "${RELEASE_SIGNER_EMAIL:-}" ]] || missing+=("RELEASE_SIGNER_EMAIL")
+          [[ -n "${RELEASE_SIGNER_NAME:-}" ]] || missing+=("RELEASE_SIGNER_NAME")
+
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing release configuration: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+      - name: Configure SSH Tag Signing
+        if: steps.release_intent.outputs.should_release == 'true'
+        id: signing
+        shell: bash
+        env:
+          RELEASE_SIGNER_EMAIL: ${{ vars.RELEASE_SIGNER_EMAIL }}
+          RELEASE_SIGNER_NAME: ${{ vars.RELEASE_SIGNER_NAME }}
+          RELEASE_SSH_PRIVATE_KEY_B64: ${{ secrets.RELEASE_SSH_PRIVATE_KEY_B64 }}
+          RELEASE_SSH_PUBLIC_KEY: ${{ secrets.RELEASE_SSH_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+
+          key_file="$RUNNER_TEMP/release_signing_key"
+          public_key_file="${key_file}.pub"
+          allowed_signers="$RUNNER_TEMP/allowed_signers"
+
+          printf '%s' "$RELEASE_SSH_PRIVATE_KEY_B64" | base64 -d > "$key_file"
+          printf '%s\n' "$RELEASE_SSH_PUBLIC_KEY" > "$public_key_file"
+          chmod 600 "$key_file"
+          ssh-keygen -y -f "$key_file" >/dev/null
+
+          printf '%s %s\n' "$RELEASE_SIGNER_EMAIL" "$RELEASE_SSH_PUBLIC_KEY" > "$allowed_signers"
+
+          git config user.name "$RELEASE_SIGNER_NAME"
+          git config user.email "$RELEASE_SIGNER_EMAIL"
+          git config gpg.format ssh
+          git config user.signingkey "$key_file"
+          git config gpg.ssh.allowedSignersFile "$allowed_signers"
+          git config tag.gpgSign true
+
+          echo "key_file=$key_file" >> "$GITHUB_OUTPUT"
+          echo "public_key_file=$public_key_file" >> "$GITHUB_OUTPUT"
+          echo "allowed_signers=$allowed_signers" >> "$GITHUB_OUTPUT"
+
+      - name: Create Signed Annotated Tag
+        if: steps.release_intent.outputs.should_release == 'true' && steps.release_intent.outputs.tag_exists != 'true'
+        shell: bash
+        env:
+          VERSION: ${{ steps.release_intent.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          git tag -s "$VERSION" -m "Release $VERSION"
+          git tag -v "$VERSION"
+
+      - name: Push Release Tag
+        if: steps.release_intent.outputs.should_release == 'true' && steps.release_intent.outputs.tag_exists != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release_intent.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          gh auth setup-git
+          git push "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/$VERSION"
+
+      - name: Remove Signing Key Material
+        if: always() && steps.signing.outcome == 'success'
+        shell: bash
+        env:
+          KEY_FILE: ${{ steps.signing.outputs.key_file }}
+          PUBLIC_KEY_FILE: ${{ steps.signing.outputs.public_key_file }}
+          ALLOWED_SIGNERS: ${{ steps.signing.outputs.allowed_signers }}
+        run: |
+          set -euo pipefail
+
+          rm -f "$KEY_FILE" "$PUBLIC_KEY_FILE" "$ALLOWED_SIGNERS"
+
+      - name: Confirm GitHub Verified The Tag
+        if: steps.release_intent.outputs.should_release == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release_intent.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          ref_json="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${VERSION}")"
+          ref_type="$(jq -r '.object.type' <<<"$ref_json")"
+          tag_sha="$(jq -r '.object.sha' <<<"$ref_json")"
+
+          if [[ "$ref_type" != "tag" ]]; then
+            echo "Release tag must be an annotated tag object, got ref object type: $ref_type" >&2
+            exit 1
+          fi
+
+          tag_json="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${tag_sha}")"
+          object_type="$(jq -r '.object.type' <<<"$tag_json")"
+          commit_sha="$(jq -r '.object.sha' <<<"$tag_json")"
+          verified="$(jq -r '.verification.verified' <<<"$tag_json")"
+          reason="$(jq -r '.verification.reason' <<<"$tag_json")"
+
+          if [[ "$object_type" != "commit" ]]; then
+            echo "Release tag must point to a commit, got object type: $object_type" >&2
+            exit 1
+          fi
+
+          if [[ "$commit_sha" != "$GITHUB_SHA" ]]; then
+            echo "Release tag points at $commit_sha, expected $GITHUB_SHA" >&2
+            exit 1
+          fi
+
+          if [[ "$verified" != "true" || "$reason" != "valid" ]]; then
+            echo "GitHub does not consider tag verified: verified=$verified reason=$reason" >&2
+            exit 1
+          fi
+
+      - name: Determine Go Version
+        if: steps.release_intent.outputs.should_release == 'true' && github.event.repository.private == false
+        id: go-version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          go_version="$(awk '$1 == "go" {print $2; exit}' go.mod)"
+          if [[ -z "$go_version" ]]; then
+            echo "Unable to determine Go version from go.mod" >&2
+            exit 1
+          fi
+
+          GO_VERSION="$go_version" python3 .github/scripts/resolve_go_version.py
+
+      - name: Set Up Go
+        if: steps.release_intent.outputs.should_release == 'true' && github.event.repository.private == false
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: ${{ steps.go-version.outputs.version }}
+          cache: false
+
+      - name: Request Go Proxy Indexing
+        if: steps.release_intent.outputs.should_release == 'true' && github.event.repository.private == false
+        shell: bash
+        env:
+          VERSION: ${{ steps.release_intent.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          module_path="$(awk '$1 == "module" {print $2; exit}' go.mod)"
+          if [[ -z "$module_path" ]]; then
+            echo "Unable to determine module path from go.mod" >&2
+            exit 1
+          fi
+
+          for attempt in {1..12}; do
+            if GOPROXY=proxy.golang.org go list -m "${module_path}@${VERSION}"; then
+              exit 0
+            fi
+
+            echo "Go proxy has not resolved ${VERSION} yet; retrying (${attempt}/12)."
+            sleep 10
+          done
+
+          echo "Go proxy did not resolve ${VERSION} after retries." >&2
+          exit 1
+
+      - name: Create GitHub Release
+        if: steps.release_intent.outputs.should_release == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release_intent.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists: $VERSION"
+            exit 0
+          fi
+
+          gh release create "$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --generate-notes \
+            --title "$VERSION" \
+            --fail-on-no-commits
