@@ -68,6 +68,7 @@
       "dependencyDashboardApproval": false,
       "automerge": true,
       "automergeType": "pr",
+      "automergeStrategy": "squash",
       "labels": ["security", "security:floor", "renovate:type-security-floor"]
     },
     {
@@ -115,40 +116,6 @@
       "description": "Do not update the local unpublished adapter requirement used by examples",
       "matchManagers": ["gomod"],
       "matchFileNames": [".examples/**"],
-      "matchPackageNames": ["github.com/pjscruggs/slogcp-grpc-adapter"],
-      "enabled": false
-    },
-    {
-      "description": "Keep adapter-owned e2e module go directives on the latest released Go version",
-      "matchManagers": ["gomod"],
-      "matchDatasources": ["golang-version"],
-      "matchDepTypes": ["golang"],
-      "matchDepNames": ["go"],
-      "matchFileNames": [".e2e/**/go.mod"],
-      "rangeStrategy": "bump",
-      "dependencyDashboardApproval": false,
-      "automerge": true,
-      "automergeType": "pr",
-      "groupName": "adapter e2e go directives",
-      "labels": ["renovate:e2e", "dependency-scope:e2e", "renovate:go-version"],
-      "prPriority": 4
-    },
-    {
-      "description": "Routine latest-compatible updates for adapter-owned e2e modules",
-      "matchManagers": ["gomod"],
-      "matchFileNames": [".e2e/**"],
-      "groupName": "adapter e2e dependencies",
-      "labels": ["renovate:e2e", "dependency-scope:e2e"],
-      "schedule": ["* 4 * * *"],
-      "automerge": true,
-      "automergeType": "pr",
-      "automergeStrategy": "squash",
-      "prPriority": 3
-    },
-    {
-      "description": "Do not update the local unpublished adapter requirement used by adapter-owned e2e",
-      "matchManagers": ["gomod"],
-      "matchFileNames": [".e2e/**"],
       "matchPackageNames": ["github.com/pjscruggs/slogcp-grpc-adapter"],
       "enabled": false
     }

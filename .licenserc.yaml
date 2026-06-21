@@ -17,8 +17,6 @@ header:
     - '**/*.py'
     - '**/*.sh'
     - '.github/scripts/**/*.py'
-    - '.e2e/**/*.go'
-    - '.e2e/**/*.sh'
 
   paths-ignore:
     - 'dist'
