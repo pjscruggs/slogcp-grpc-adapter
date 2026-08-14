@@ -15,7 +15,6 @@
 package slogcpadapter
 
 import (
-	"bytes"
 	"context"
 	"io"
 	"log/slog"
@@ -157,16 +156,10 @@ func TestNewLoggerUsesHandlerAndDefaultFallback(t *testing.T) {
 		t.Fatalf("expected slogcp handler to be used")
 	}
 
-	buf := &bytes.Buffer{}
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(buf, nil)))
-	defer slog.SetDefault(prev)
-
+	want := slog.Default()
 	fallback := NewLogger(nil)
-	fallback.Log(context.Background(), grpc_logging.LevelInfo, "default-path", "k", "v")
-
-	if buf.Len() == 0 {
-		t.Fatalf("expected default slog logger to receive output")
+	if fallback.log != want {
+		t.Fatalf("expected fallback to use slog.Default")
 	}
 }
 

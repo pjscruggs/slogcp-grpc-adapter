@@ -13,7 +13,7 @@
     "enabled": true,
     "labels": ["security", "security:floor", "renovate:type-security-floor"],
     "vulnerabilityFixStrategy": "lowest",
-    "automerge": true
+    "automerge": false
   },
   "osvVulnerabilityAlerts": true,
   "postUpdateOptions": [
@@ -60,15 +60,13 @@
       "enabled": false
     },
     {
-      "description": "Security floor updates must not wait for normal root Dependency Dashboard approval",
+      "description": "Security floor updates await an explicit release decision",
       "matchManagers": ["gomod"],
       "matchFileNames": ["go.mod"],
       "matchJsonata": ["$exists(vulnerabilityFixVersion)"],
       "enabled": true,
       "dependencyDashboardApproval": false,
-      "automerge": true,
-      "automergeType": "pr",
-      "automergeStrategy": "squash",
+      "automerge": false,
       "labels": ["security", "security:floor", "renovate:type-security-floor"]
     },
     {

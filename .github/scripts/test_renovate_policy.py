@@ -39,6 +39,7 @@ class RenovatePolicyTests(unittest.TestCase):
         vuln = self.config.get("vulnerabilityAlerts", {})
         self.assertTrue(vuln.get("enabled"))
         self.assertEqual(vuln.get("vulnerabilityFixStrategy"), "lowest")
+        self.assertFalse(vuln.get("automerge"))
         self.assertTrue(self.config.get("osvVulnerabilityAlerts"))
 
     def test_workflow_go_install_pins_are_managed(self) -> None:
@@ -66,17 +67,15 @@ class RenovatePolicyTests(unittest.TestCase):
         self.assertEqual(rule.get("matchDepTypes"), ["require"])
         self.assertFalse(rule.get("enabled"))
 
-    def test_security_floor_updates_are_enabled(self) -> None:
+    def test_security_floor_updates_require_an_explicit_release(self) -> None:
         rule = self.find_rule(
-            "Security floor updates must not wait for normal root Dependency Dashboard approval"
+            "Security floor updates await an explicit release decision"
         )
         self.assertEqual(rule.get("matchFileNames"), ["go.mod"])
         self.assertEqual(rule.get("matchJsonata"), ["$exists(vulnerabilityFixVersion)"])
         self.assertTrue(rule.get("enabled"))
         self.assertFalse(rule.get("dependencyDashboardApproval"))
-        self.assertTrue(rule.get("automerge"))
-        self.assertEqual(rule.get("automergeType"), "pr")
-        self.assertEqual(rule.get("automergeStrategy"), "squash")
+        self.assertFalse(rule.get("automerge"))
 
     def test_root_toolchain_updates_are_automerge(self) -> None:
         rule = self.find_rule(

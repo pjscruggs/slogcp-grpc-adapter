@@ -46,13 +46,11 @@ def select_version(
         return {"status": "error", "version": go_version, "message": "unparseable go directive"}
 
     requested_major_minor = ".".join(sections[:2])
-    prefix = f"go{requested_major_minor}"
+    requested_major_minor_tuple = (int(sections[0]), int(sections[1]))
 
     latest_patch: Optional[str] = None
     latest_patch_numeric: Optional[Tuple[int, ...]] = None
-    stable_release: Optional[Tuple[Tuple[int, ...], str]] = None
-    oldstable_release: Optional[Tuple[Tuple[int, ...], str]] = None
-    stable_major_minor: Optional[Tuple[int, int]] = None
+    stable_by_major_minor: dict[Tuple[int, int], Tuple[Tuple[int, ...], str]] = {}
 
     for release in releases:
         version = release.get("version", "")
@@ -68,19 +66,14 @@ def select_version(
         is_stable = bool(release.get("stable", False))
 
         if is_stable:
-            if stable_release is None:
-                stable_release = (numeric_tuple, numeric_part)
-                stable_major_minor = current_major_minor
-            elif oldstable_release is None and current_major_minor != stable_major_minor:
-                oldstable_release = (numeric_tuple, numeric_part)
+            previous = stable_by_major_minor.get(current_major_minor)
+            if previous is None or numeric_tuple > previous[0]:
+                stable_by_major_minor[current_major_minor] = (numeric_tuple, numeric_part)
 
-        if is_stable and version.startswith(prefix):
+        if is_stable and current_major_minor == requested_major_minor_tuple:
             if latest_patch_numeric is None or numeric_tuple > latest_patch_numeric:
                 latest_patch_numeric = numeric_tuple
                 latest_patch = numeric_part
-
-        if latest_patch is not None and stable_release is not None and oldstable_release is not None:
-            break
 
     if latest_patch is not None:
         return {
@@ -89,15 +82,17 @@ def select_version(
             "version": latest_patch,
         }
 
-    if stable_release is not None:
+    stable_releases = sorted(stable_by_major_minor.values(), reverse=True)
+    if stable_releases:
+        stable_release = stable_releases[0]
         payload: dict[str, object] = {
             "status": "fallback",
             "alias": "stable",
             "requested": requested_major_minor,
             "version": stable_release[1],
         }
-        if oldstable_release is not None:
-            payload["oldstable"] = oldstable_release[1]
+        if len(stable_releases) > 1:
+            payload["oldstable"] = stable_releases[1][1]
         return payload
 
     return {"status": "error", "version": go_version, "message": "no stable releases discovered"}
