@@ -43,7 +43,8 @@ func main() {
 	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
 	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
 
-	lis, err := net.Listen("tcp", ":0")
+	// The example calls only its own server, so keep the listener off external interfaces.
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
