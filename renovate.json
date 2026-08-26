@@ -19,34 +19,61 @@
   "postUpdateOptions": [
     "gomodTidy"
   ],
-  "customManagers": [
-    {
-      "customType": "regex",
-      "description": "Update go install tool pins used by GitHub Actions workflows",
-      "managerFilePatterns": [
-        "/^\\.github\\/workflows\\/.*\\.ya?ml$/"
-      ],
-      "matchStrings": [
-        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?\\s+go install \\S+@(?<currentValue>\\S+)"
-      ],
-      "versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}"
-    }
-  ],
   "packageRules": [
     {
-      "description": "Keep the adapter root module pinned to the lowest supported Go patch release",
+      "description": "Do not automate the adapter's public Go compatibility floor",
       "matchManagers": ["gomod"],
       "matchDatasources": ["golang-version"],
       "matchDepTypes": ["golang"],
       "matchDepNames": ["go"],
       "matchFileNames": ["go.mod"],
-      "allowedVersions": "/^{{major}}\\.{{minor}}\\.0$/"
+      "enabled": false
     },
     {
-      "description": "CI-only dependency updates stay under .github",
-      "matchManagers": ["github-actions", "custom.regex"],
+      "description": "Do not update the CI tools module Go directive independently",
+      "matchManagers": ["gomod"],
+      "matchDatasources": ["golang-version"],
+      "matchDepTypes": ["golang"],
+      "matchDepNames": ["go"],
+      "matchFileNames": [".github/tools/go.mod"],
+      "enabled": false
+    },
+    {
+      "description": "GitHub Actions updates stay separate from executable CI tools",
+      "matchManagers": ["github-actions"],
       "matchFileNames": [".github/**"],
-      "groupName": "adapter ci-only dependencies",
+      "matchJsonata": ["$not($exists(vulnerabilityFixVersion))"],
+      "groupName": "github actions",
+      "labels": ["renovate:ci", "dependency-scope:ci"],
+      "schedule": ["* 2 * * *"],
+      "prPriority": 20
+    },
+    {
+      "description": "Compiler-sensitive Go CI tools update together",
+      "matchManagers": ["gomod"],
+      "matchDatasources": ["go"],
+      "matchPackageNames": [
+        "github.com/golangci/golangci-lint/v2",
+        "golang.org/x/tools",
+        "golang.org/x/vuln"
+      ],
+      "matchFileNames": [".github/tools/go.mod"],
+      "matchJsonata": ["$not($exists(vulnerabilityFixVersion))"],
+      "groupName": "compiler-sensitive ci tools",
+      "labels": ["renovate:ci", "dependency-scope:ci"],
+      "schedule": ["* 2 * * *"],
+      "prPriority": 25
+    },
+    {
+      "description": "Auxiliary Go CI tools update separately",
+      "matchManagers": ["gomod"],
+      "matchDatasources": ["go"],
+      "matchPackageNames": [
+        "github.com/apache/skywalking-eyes"
+      ],
+      "matchFileNames": [".github/tools/go.mod"],
+      "matchJsonata": ["$not($exists(vulnerabilityFixVersion))"],
+      "groupName": "auxiliary ci tools",
       "labels": ["renovate:ci", "dependency-scope:ci"],
       "schedule": ["* 2 * * *"],
       "prPriority": 20
@@ -76,6 +103,7 @@
       "matchDepTypes": ["toolchain"],
       "matchDepNames": ["go"],
       "matchFileNames": ["go.mod"],
+      "matchJsonata": ["$not($exists(vulnerabilityFixVersion))"],
       "dependencyDashboardApproval": false,
       "automerge": true,
       "automergeType": "pr",
@@ -89,7 +117,8 @@
       "matchDatasources": ["golang-version"],
       "matchDepTypes": ["golang"],
       "matchDepNames": ["go"],
-      "matchFileNames": [".examples/**/go.mod"],
+      "matchFileNames": [".examples/adapter/go.mod"],
+      "matchJsonata": ["$not($exists(vulnerabilityFixVersion))"],
       "rangeStrategy": "bump",
       "dependencyDashboardApproval": false,
       "automerge": true,
@@ -99,9 +128,11 @@
       "prPriority": 6
     },
     {
-      "description": "Routine latest-compatible updates for checked-in example modules",
+      "description": "Routine latest-compatible updates for the checked-in adapter example",
       "matchManagers": ["gomod"],
-      "matchFileNames": [".examples/**"],
+      "matchDatasources": ["go"],
+      "matchFileNames": [".examples/adapter/go.mod"],
+      "matchJsonata": ["$not($exists(vulnerabilityFixVersion))"],
       "groupName": "examples module dependencies",
       "labels": ["renovate:examples", "dependency-scope:examples"],
       "schedule": ["* 3-6 * * *"],
