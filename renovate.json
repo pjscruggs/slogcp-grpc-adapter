@@ -11,7 +11,7 @@
   "platformAutomerge": false,
   "vulnerabilityAlerts": {
     "enabled": true,
-    "labels": ["security", "security:floor", "renovate:type-security-floor"],
+    "labels": ["security"],
     "vulnerabilityFixStrategy": "lowest",
     "automerge": false
   },
@@ -79,6 +79,16 @@
       "prPriority": 20
     },
     {
+      "description": "Keep CI tools vulnerability fixes separate from public dependency floor updates",
+      "matchManagers": ["gomod"],
+      "matchDatasources": ["go"],
+      "matchFileNames": [".github/tools/go.mod"],
+      "matchJsonata": ["$exists(vulnerabilityFixVersion)"],
+      "dependencyDashboardApproval": false,
+      "automerge": false,
+      "addLabels": ["renovate:ci", "dependency-scope:ci"]
+    },
+    {
       "description": "Do not propose routine root go.mod dependency floor updates",
       "matchManagers": ["gomod"],
       "matchFileNames": ["go.mod"],
@@ -94,7 +104,7 @@
       "enabled": true,
       "dependencyDashboardApproval": false,
       "automerge": false,
-      "labels": ["security", "security:floor", "renovate:type-security-floor"]
+      "addLabels": ["security:floor", "renovate:type-security-floor"]
     },
     {
       "description": "Keep the root go.mod toolchain directive on the latest released Go toolchain",
