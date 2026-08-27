@@ -1,4 +1,5 @@
 name: Validation Pipeline
+
 on:
   pull_request:
     branches: [ main ]
@@ -6,112 +7,294 @@ on:
     branches: [ main ]
   workflow_dispatch:
   workflow_call:
+    inputs:
+      go_validation_mode:
+        description: Select requirement-based or latest-stable Go validation.
+        required: false
+        type: string
+        default: requirements
+    outputs:
+      validation_passed:
+        description: Whether every required adapter validation job succeeded.
+        value: ${{ jobs.adapter_local_validation_policy.outputs.validation_passed }}
+      validated_mode:
+        description: Go validation mode reported by the workflow.
+        value: ${{ jobs.adapter_local_validation_policy.outputs.validated_mode }}
+      root_version:
+        description: Exact Go version used for preferred root validation.
+        value: ${{ jobs.adapter_local_validation_policy.outputs.root_version }}
+      example_version:
+        description: Exact Go version used for adapter example validation.
+        value: ${{ jobs.adapter_local_validation_policy.outputs.example_version }}
 
 permissions:
   contents: read
   pull-requests: read
 
 jobs:
-  validation:
-    name: Fix and Validate Code
+  validation_preflight:
+    name: Plan Go Validation
     runs-on: ubuntu-latest
     env:
-      GOTOOLCHAIN: auto
+      GO_VALIDATION_MODE: ${{ inputs.go_validation_mode || 'requirements' }}
+      PYTHONDONTWRITEBYTECODE: "1"
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      root_floor_spec: ${{ steps.plan.outputs.root_floor_spec }}
+      root_spec: ${{ steps.plan.outputs.root_spec }}
+      example_spec: ${{ steps.plan.outputs.example_spec }}
     steps:
-      - name: Checkout Code
+      - name: Checkout validation source
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
         with:
           fetch-depth: 0
+          persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-          persist-credentials: false
 
-      - name: Determine Go version
-        id: go-version
-        run: |
-          TOOLCHAIN_VERSION=$(awk '$1 == "toolchain" {sub(/^go/, "", $2); print $2; exit}' go.mod)
-          if [ -n "$TOOLCHAIN_VERSION" ]; then
-            echo "Using pinned Go toolchain: $TOOLCHAIN_VERSION"
-            echo "version=$TOOLCHAIN_VERSION" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          GO_VERSION=$(grep '^go ' go.mod | awk '{print $2}')
-          if [ -z "$GO_VERSION" ]; then
-            echo "Unable to determine Go version from go.mod" >&2
-            exit 1
-          fi
-          GO_VERSION="$GO_VERSION" python3 .github/scripts/resolve_go_version.py
-
-      - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version: ${{ steps.go-version.outputs.version }}
-          cache: true
-
-      - name: Install golangci-lint
-        uses: golangci/golangci-lint-action@e7fa5ac41e1cf5b7d48e45e42232ce7ada589601 # v9
-        with:
-          version: v2.1.5
-          install-mode: goinstall
-          install-only: true
-
-      - name: Install license-eye
-        run: |
-          # renovate: datasource=go depName=github.com/apache/skywalking-eyes versioning=semver
-          go install github.com/apache/skywalking-eyes/cmd/license-eye@v0.8.0
-
-      - name: Apply Go Formatting
-        run: |
-          # renovate: datasource=go depName=golang.org/x/tools versioning=semver
-          go install golang.org/x/tools/cmd/goimports@v0.39.1-0.20251201175718-869ced31773a
-          gofmt -w .
-          goimports -local github.com/pjscruggs/slogcp-grpc-adapter -w .
-
-      - name: Ensure module metadata is tidy
-        run: go mod tidy
-
-      - name: Ensure example module metadata is tidy
+      - name: Require current PR base
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          if [ ! -d ".examples" ]; then
-            echo "No .examples directory found; skipping example module tidy."
-            exit 0
+          current_base="$(
+            git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" \
+              "refs/heads/${BASE_REF}" | awk 'NR == 1 { print $1 }'
+          )"
+          test -n "$current_base"
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          if ! git merge-base --is-ancestor "$current_base" "$HEAD_SHA"; then
+            echo "PR head $HEAD_SHA does not contain current $BASE_REF ($current_base)." >&2
+            echo "Update the branch and rerun validation before merging." >&2
+            exit 1
           fi
 
-          modules_found=0
-          while IFS= read -r -d '' mod; do
-            modules_found=1
-            dir=$(dirname "$mod")
-            echo "::group::go mod tidy $dir"
-            (cd "$dir" && go mod tidy)
-            echo "::endgroup::"
-          done < <(find .examples -name go.mod -print0)
+      - name: Validate CI shell syntax
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' script; do
+            echo "Checking shell syntax: $script"
+            bash -n "$script"
+          done < <(find .github/scripts -type f -name '*.sh' -print0 | sort -z)
 
-          if [ "$modules_found" -eq 0 ]; then
-            echo "No example go.mod files found under .examples; skipping."
+      - name: Test CI support tooling
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+
+      - name: Plan repository validation
+        id: plan
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          read_required_directive() {
+            local file="$1"
+            local directive="$2"
+            local values
+            mapfile -t values < <(awk -v directive="$directive" '$1 == directive { print $2 }' "$file")
+            if (( ${#values[@]} != 1 )); then
+              echo "$file must contain exactly one $directive directive; found ${#values[@]}." >&2
+              exit 1
+            fi
+            printf '%s\n' "${values[0]}"
+          }
+
+          normalize_version() {
+            local version="${1#go}"
+            if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(\.((0|[1-9][0-9]*)))?$ ]]; then
+              echo "Invalid Go version: $1" >&2
+              exit 1
+            fi
+            printf '%s.%s.%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[4]:-0}"
+          }
+
+          minor_spec() {
+            local version
+            version="$(normalize_version "$1")"
+            IFS=. read -r major minor _ <<< "$version"
+            printf '%s.%s.x\n' "$major" "$minor"
+          }
+
+          mapfile -t example_manifests < <(
+            git ls-files -- ':(glob).examples/**/go.mod'
+          )
+          if (( ${#example_manifests[@]} != 1 )) || [[ "${example_manifests[0]:-}" != ".examples/adapter/go.mod" ]]; then
+            echo "Validation requires exactly the tracked .examples/adapter/go.mod manifest." >&2
+            printf 'Tracked example manifest: %s\n' "${example_manifests[@]:-<none>}" >&2
+            exit 1
           fi
 
-      - name: Sync example Go directives
-        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'renovate:go-version')
-        run: python3 .github/scripts/sync_example_go_versions.py
+          root_go="$(normalize_version "$(read_required_directive go.mod go)")"
+          tools_go="$(normalize_version "$(read_required_directive .github/tools/go.mod go)")"
+          example_go="$(normalize_version "$(read_required_directive .examples/adapter/go.mod go)")"
+
+          mapfile -t root_toolchains < <(awk '$1 == "toolchain" { print $2 }' go.mod)
+          if (( ${#root_toolchains[@]} > 1 )); then
+            echo "go.mod must contain at most one toolchain directive." >&2
+            exit 1
+          fi
+          root_preferred="$root_go"
+          if (( ${#root_toolchains[@]} == 1 )); then
+            root_preferred="$(normalize_version "${root_toolchains[0]}")"
+          fi
+
+          if [[ "$(printf '%s\n%s\n' "$root_preferred" "$tools_go" | sort -V | tail -n 1)" != "$root_preferred" ]]; then
+            echo ".github/tools/go.mod requires Go $tools_go, above the preferred root toolchain $root_preferred." >&2
+            exit 1
+          fi
+
+          case "$GO_VALIDATION_MODE" in
+            requirements)
+              root_spec="$root_preferred"
+              example_spec="$example_go"
+              ;;
+            latest)
+              root_spec=stable
+              example_spec=stable
+              ;;
+            *)
+              echo "Unsupported Go validation mode: $GO_VALIDATION_MODE" >&2
+              exit 1
+              ;;
+          esac
+
+          root_floor_spec="$(minor_spec "$root_go")"
+          echo "mode=$GO_VALIDATION_MODE" >> "$GITHUB_OUTPUT"
+          echo "root_floor_spec=$root_floor_spec" >> "$GITHUB_OUTPUT"
+          echo "root_spec=$root_spec" >> "$GITHUB_OUTPUT"
+          echo "example_spec=$example_spec" >> "$GITHUB_OUTPUT"
+
+          echo "Validation mode: $GO_VALIDATION_MODE"
+          echo "Root compatibility series: $root_floor_spec"
+          echo "Preferred root input: $root_spec"
+          echo "Adapter example input: $example_spec"
+          echo "CI tools minimum: $tools_go"
+
+  root_floor_validation:
+    name: Validate Root Compatibility Floor (Go ${{ needs.validation_preflight.outputs.root_floor_spec }})
+    needs: validation_preflight
+    runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - name: Checkout validation source
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+
+      - name: Set up root compatibility Go runtime
+        id: setup_go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: ${{ needs.validation_preflight.outputs.root_floor_spec }}
+          check-latest: true
+          cache: false
+
+      - name: Assert root compatibility Go runtime
+        env:
+          EXPECTED_VERSION: ${{ steps.setup_go.outputs.go-version }}
+        run: |
+          set -euo pipefail
+          [[ "$(go env GOVERSION)" == "go$EXPECTED_VERSION" ]]
+          [[ "$(go env GOTOOLCHAIN)" == "local" ]]
+          echo "Verified root compatibility runtime: go$EXPECTED_VERSION (GOTOOLCHAIN=local)."
+
+      - name: Test root module at its compatibility floor
+        run: go test -mod=readonly -race -count=1 ./...
+
+  validation:
+    name: Fix and Validate Code
+    needs: validation_preflight
+    runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: local
+    outputs:
+      runtime_version: ${{ steps.runtime.outputs.version }}
+    steps:
+      - name: Checkout validation source
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+
+      - name: Set up preferred root Go runtime
+        id: setup_go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: ${{ needs.validation_preflight.outputs.root_spec }}
+          check-latest: true
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            .github/tools/go.sum
+
+      - name: Assert preferred root Go runtime
+        id: runtime
+        env:
+          EXPECTED_VERSION: ${{ steps.setup_go.outputs.go-version }}
+        run: |
+          set -euo pipefail
+          [[ "$(go env GOVERSION)" == "go$EXPECTED_VERSION" ]]
+          [[ "$(go env GOTOOLCHAIN)" == "local" ]]
+          echo "version=$EXPECTED_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Verified preferred root runtime: go$EXPECTED_VERSION (GOTOOLCHAIN=local)."
+
+      - name: Verify CI tool module
+        run: |
+          set -euo pipefail
+          (cd .github/tools && go mod tidy)
+          go list -modfile .github/tools/go.mod -m \
+            github.com/apache/skywalking-eyes \
+            github.com/golangci/golangci-lint/v2 \
+            golang.org/x/tools \
+            golang.org/x/vuln
+          go tool -modfile .github/tools/go.mod golangci-lint version
+          go tool -modfile .github/tools/go.mod govulncheck -version
+
+      - name: Apply Go formatting
+        run: |
+          set -euo pipefail
+          mapfile -d '' root_go_files < <(
+            git ls-files -z -- ':(glob)**/*.go' ':(exclude,glob).examples/**/*.go'
+          )
+          if (( ${#root_go_files[@]} == 0 )); then
+            echo "No tracked root Go files were found." >&2
+            exit 1
+          fi
+          gofmt -w "${root_go_files[@]}"
+          go tool -modfile .github/tools/go.mod goimports \
+            -local github.com/pjscruggs/slogcp-grpc-adapter \
+            -w "${root_go_files[@]}"
+
+      - name: Ensure root module metadata is tidy
+        run: go mod tidy
 
       - name: Get current year in US Central Time
         id: year
         run: |
           YEAR=$(TZ='America/Chicago' date +%Y)
-          echo "YEAR=$YEAR" >> $GITHUB_OUTPUT
+          echo "YEAR=$YEAR" >> "$GITHUB_OUTPUT"
 
       - name: Update license year in config
         run: |
           sed -i 's/copyright-year: .*/copyright-year: "2025-${{ steps.year.outputs.YEAR }}"/g' .licenserc.yaml
           echo "Updated year to 2025-${{ steps.year.outputs.YEAR }}"
 
-      - name: Fix License Headers
-        run: license-eye -v info -c .licenserc.yaml header fix
+      - name: Fix license headers
+        run: >-
+          go tool -modfile .github/tools/go.mod license-eye
+          -v info -c .licenserc.yaml header fix
 
-      - name: Apply Lint Fixes
-        run: golangci-lint run --fix --timeout=5m ./...
+      - name: Apply lint fixes
+        run: >-
+          go tool -modfile .github/tools/go.mod golangci-lint
+          run --fix --timeout=5m ./...
         continue-on-error: true
 
       - name: Ensure working tree is clean
@@ -123,92 +306,179 @@ jobs:
 
           echo "Working tree has uncommitted changes after maintenance steps."
           printf '%s\n' "$status"
+          git diff --check
+          git diff
           exit 1
 
-      - name: Verify Linting
-        run: golangci-lint run --timeout=5m ./...
+      - name: Verify linting
+        run: >-
+          go tool -modfile .github/tools/go.mod golangci-lint
+          run --timeout=5m ./...
 
-      - name: Verify License Headers
-        run: license-eye -v info -c .licenserc.yaml header check
+      - name: Verify license headers
+        run: >-
+          go tool -modfile .github/tools/go.mod license-eye
+          -v info -c .licenserc.yaml header check
 
-      - name: Verify example Go directives
-        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'renovate:go-version')
-        run: python3 .github/scripts/sync_example_go_versions.py --check
-
-      - name: Verify CI support tooling
-        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
-
-      - name: Install Go Test Tools
-        run: |
-          # renovate: datasource=go depName=github.com/mfridman/tparse versioning=semver
-          go install github.com/mfridman/tparse@v0.18.0
-
-      - name: Run Go Tests
-        if: success()
-        id: go-tests
+      - name: Run root Go tests
         run: |
           set -euo pipefail
-          go test -json -race -coverprofile=coverage.out ./... | tparse -all -notests
+          go test -race -coverprofile=coverage.out ./...
 
-      - name: Verify Example Modules
-        if: success()
-        run: |
-          set -euo pipefail
-          if [ ! -d ".examples" ]; then
-            echo "No .examples directory found; skipping example verification."
-            exit 0
-          fi
-
-          examples_found=0
-          while IFS= read -r -d '' mod; do
-            examples_found=1
-            dir=$(dirname "$mod")
-            echo "::group::go test $dir"
-            (cd "$dir" && go test -race ./...)
-            echo "::endgroup::"
-          done < <(find .examples -name go.mod -print0)
-
-          if [ "$examples_found" -eq 0 ]; then
-            echo "No example go.mod files found under .examples; skipping."
-          fi
-
-      - name: Print Coverage Report
+      - name: Print coverage report
         if: always()
         run: |
           echo "--- Test Coverage ---"
-          if [ -f coverage.out ]; then
+          if [[ -f coverage.out ]]; then
             cat coverage.out
           else
             echo "Coverage file (coverage.out) not found."
           fi
           echo "---------------------"
 
-      - name: Run Vulnerability Check
+      - name: Run root vulnerability check
+        run: go tool -modfile .github/tools/go.mod govulncheck ./...
+
+  example_validation:
+    name: Validate Adapter Example
+    needs: validation_preflight
+    runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: local
+    outputs:
+      runtime_version: ${{ steps.runtime.outputs.version }}
+    steps:
+      - name: Checkout validation source
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+
+      - name: Set up adapter example Go runtime
+        id: setup_go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: ${{ needs.validation_preflight.outputs.example_spec }}
+          check-latest: true
+          cache: true
+          cache-dependency-path: |
+            .examples/adapter/go.sum
+            .github/tools/go.sum
+
+      - name: Assert adapter example Go runtime
+        id: runtime
+        env:
+          EXPECTED_VERSION: ${{ steps.setup_go.outputs.go-version }}
         run: |
-          echo "Installing govulncheck..."
-          # renovate: datasource=go depName=golang.org/x/vuln versioning=semver
-          go install golang.org/x/vuln/cmd/govulncheck@v1.1.5-0.20250813145526-b9d319d7ce41
-          echo "Running vulnerability check..."
-          govulncheck ./...
+          set -euo pipefail
+          [[ "$(go env GOVERSION)" == "go$EXPECTED_VERSION" ]]
+          [[ "$(go env GOTOOLCHAIN)" == "local" ]]
+          echo "version=$EXPECTED_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Verified adapter example runtime: go$EXPECTED_VERSION (GOTOOLCHAIN=local)."
+
+      - name: Validate adapter example
+        run: |
+          set -euo pipefail
+          mapfile -d '' example_go_files < <(
+            git ls-files -z -- ':(glob).examples/adapter/**/*.go'
+          )
+          if (( ${#example_go_files[@]} == 0 )); then
+            echo "No tracked Go files were found for .examples/adapter." >&2
+            exit 1
+          fi
+
+          gofmt -w "${example_go_files[@]}"
+          go tool -modfile .github/tools/go.mod goimports \
+            -local github.com/pjscruggs/slogcp-grpc-adapter \
+            -w "${example_go_files[@]}"
+          (cd .examples/adapter && go mod tidy)
+          (cd .examples/adapter && go test -race -count=1 ./...)
+          (cd .examples/adapter && \
+            go tool -modfile ../../.github/tools/go.mod govulncheck ./...)
+
+      - name: Ensure adapter example is clean
+        run: |
+          status="$(git status --porcelain -- .examples/adapter)"
+          if [[ -z "$status" ]]; then
+            exit 0
+          fi
+
+          echo "Adapter example changed during validation."
+          printf '%s\n' "$status"
+          git diff --check -- .examples/adapter
+          git diff -- .examples/adapter
+          exit 1
 
   adapter_local_validation_policy:
     name: Adapter Local Validation Policy
     needs:
+      - validation_preflight
+      - root_floor_validation
       - validation
+      - example_validation
     if: always()
     runs-on: ubuntu-latest
+    outputs:
+      validation_passed: ${{ steps.evaluate.outputs.validation_passed }}
+      validated_mode: ${{ steps.evaluate.outputs.validated_mode }}
+      root_version: ${{ steps.evaluate.outputs.root_version }}
+      example_version: ${{ steps.evaluate.outputs.example_version }}
     steps:
       - name: Evaluate adapter local validation result
+        id: evaluate
         shell: bash
         env:
-          VALIDATION_RESULT: ${{ needs.validation.result }}
+          PREFLIGHT_RESULT: ${{ needs.validation_preflight.result }}
+          FLOOR_RESULT: ${{ needs.root_floor_validation.result }}
+          ROOT_RESULT: ${{ needs.validation.result }}
+          EXAMPLE_RESULT: ${{ needs.example_validation.result }}
+          MODE: ${{ needs.validation_preflight.outputs.mode }}
+          ROOT_VERSION: ${{ needs.validation.outputs.runtime_version }}
+          EXAMPLE_VERSION: ${{ needs.example_validation.outputs.runtime_version }}
         run: |
           set -euo pipefail
+          failed=false
 
-          if [[ "$VALIDATION_RESULT" == "success" ]]; then
-            echo "Adapter validation passed."
-            exit 0
+          require_success() {
+            local label="$1"
+            local result="$2"
+            if [[ "$result" != "success" ]]; then
+              echo "$label expected success, got: $result" >&2
+              failed=true
+            fi
+          }
+
+          require_success "Validation preflight" "$PREFLIGHT_RESULT"
+          require_success "Root compatibility validation" "$FLOOR_RESULT"
+          require_success "Preferred root validation" "$ROOT_RESULT"
+          require_success "Adapter example validation" "$EXAMPLE_RESULT"
+
+          if [[ "$MODE" != "requirements" && "$MODE" != "latest" ]]; then
+            echo "Validation preflight returned an invalid mode: $MODE" >&2
+            failed=true
+          fi
+          if [[ ! "$ROOT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Preferred root validation returned an invalid version: $ROOT_VERSION" >&2
+            failed=true
+          fi
+          if [[ ! "$EXAMPLE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Adapter example validation returned an invalid version: $EXAMPLE_VERSION" >&2
+            failed=true
+          fi
+          if [[ "$MODE" == "latest" && "$ROOT_VERSION" != "$EXAMPLE_VERSION" ]]; then
+            echo "Latest validation used different root and example versions: root=$ROOT_VERSION example=$EXAMPLE_VERSION" >&2
+            failed=true
           fi
 
-          echo "Adapter validation result: $VALIDATION_RESULT"
-          exit 1
+          if [[ "$failed" == "true" ]]; then
+            echo "validation_passed=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          echo "validation_passed=true" >> "$GITHUB_OUTPUT"
+          echo "validated_mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "root_version=$ROOT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "example_version=$EXAMPLE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Adapter validation passed in $MODE mode (root=$ROOT_VERSION example=$EXAMPLE_VERSION)."

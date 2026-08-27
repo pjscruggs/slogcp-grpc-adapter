@@ -26,6 +26,13 @@ AUTO_RELEASE = (ROOT / ".github/workflows/auto-release.yml").read_text(encoding=
 VALIDATION = (ROOT / ".github/workflows/validation_pipeline.yml").read_text(
     encoding="utf-8"
 )
+LATEST_CANARY = (ROOT / ".github/workflows/latest-go-canary.yml").read_text(
+    encoding="utf-8"
+)
+WORKFLOW_SOURCES = {
+    path.name: path.read_text(encoding="utf-8")
+    for path in (ROOT / ".github/workflows").glob("*.yml")
+}
 VERSION_SOURCE = (ROOT / "version.go").read_text(encoding="utf-8")
 
 
@@ -75,30 +82,68 @@ class WorkflowPolicyTests(unittest.TestCase):
             AUTO_RELEASE,
         )
 
-    def test_validation_uses_immutable_commit_and_race_checks_examples(self) -> None:
+    def test_preflight_uses_full_history_and_requires_the_adapter_example(self) -> None:
+        preflight = VALIDATION.split("  root_floor_validation:", 1)[0]
+        self.assertIn("fetch-depth: 0", preflight)
+        self.assertIn("name: Require current PR base", preflight)
+        self.assertIn("git ls-remote", preflight)
+        self.assertIn("git merge-base --is-ancestor", preflight)
+        self.assertIn(".examples/adapter/go.mod", preflight)
+        self.assertIn("exactly the tracked .examples/adapter/go.mod", preflight)
+        self.assertIn(".github/tools/go.mod", preflight)
+
+    def test_validation_uses_exact_local_setup_go_runtimes(self) -> None:
+        self.assertGreaterEqual(VALIDATION.count("GOTOOLCHAIN: local"), 3)
+        self.assertEqual(VALIDATION.count("steps.setup_go.outputs.go-version"), 3)
+        self.assertEqual(VALIDATION.count('go env GOTOOLCHAIN)" == "local"'), 3)
+        self.assertIn("root_floor_spec", VALIDATION)
+        self.assertIn("root_spec", VALIDATION)
+        self.assertIn("example_spec", VALIDATION)
+
+    def test_native_ci_tools_are_tidy_logged_and_executed(self) -> None:
+        self.assertIn("(cd .github/tools && go mod tidy)", VALIDATION)
+        self.assertIn("go list -modfile .github/tools/go.mod -m", VALIDATION)
+        for tool in ("golangci-lint", "goimports", "govulncheck", "license-eye"):
+            with self.subTest(tool=tool):
+                self.assertIn(f".github/tools/go.mod {tool}", VALIDATION)
+
+    def test_root_and_example_validation_are_independent_and_fail_closed(self) -> None:
+        self.assertIn("go test -mod=readonly -race -count=1 ./...", VALIDATION)
+        self.assertIn("name: Validate Adapter Example", VALIDATION)
+        self.assertIn("(cd .examples/adapter && go mod tidy)", VALIDATION)
         self.assertIn(
-            "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
+            "(cd .examples/adapter && go test -race -count=1 ./...)",
             VALIDATION,
         )
-        self.assertIn('(cd "$dir" && go test -race ./...)', VALIDATION)
-        self.assertIn('(cd "$dir" && go mod tidy)', VALIDATION)
-        self.assertIn("git status --porcelain", VALIDATION)
-        self.assertIn(
-            "set -euo pipefail\n          go test -json -race",
-            VALIDATION,
-        )
+        self.assertIn('require_success "Root compatibility validation"', VALIDATION)
+        self.assertIn('require_success "Preferred root validation"', VALIDATION)
+        self.assertIn('require_success "Adapter example validation"', VALIDATION)
+        self.assertNotIn("sync_example_go_versions", VALIDATION)
 
-    def test_latest_go_sync_is_limited_to_its_renovate_pr(self) -> None:
-        condition = (
-            "github.event_name == 'pull_request' && "
-            "contains(github.event.pull_request.labels.*.name, "
-            "'renovate:go-version')"
-        )
-        self.assertEqual(VALIDATION.count(condition), 2)
+    def test_required_aggregate_name_and_release_preflight_are_preserved(self) -> None:
+        self.assertEqual(VALIDATION.count("name: Adapter Local Validation Policy"), 1)
+        self.assertIn("uses: ./.github/workflows/validation_pipeline.yml", AUTO_RELEASE)
 
-    def test_validation_prefers_the_pinned_go_toolchain(self) -> None:
-        self.assertIn("Using pinned Go toolchain", VALIDATION)
-        self.assertIn('echo "version=$TOOLCHAIN_VERSION"', VALIDATION)
+    def test_latest_canary_reuses_complete_validation_and_requires_equal_versions(self) -> None:
+        self.assertIn("uses: ./.github/workflows/validation_pipeline.yml", LATEST_CANARY)
+        self.assertIn("go_validation_mode: latest", LATEST_CANARY)
+        self.assertIn("needs.validate_latest_go.result", LATEST_CANARY)
+        self.assertIn("needs.validate_latest_go.outputs.validation_passed", LATEST_CANARY)
+        self.assertIn("Adapter Latest Go Policy", LATEST_CANARY)
+        self.assertIn('[[ "$ROOT_VERSION" != "$EXAMPLE_VERSION" ]]', LATEST_CANARY)
+        self.assertNotIn("id-token: write", LATEST_CANARY)
+
+    def test_every_referenced_local_ci_script_exists(self) -> None:
+        references: set[str] = set()
+        for source in WORKFLOW_SOURCES.values():
+            references.update(
+                re.findall(r"\.github/scripts/[A-Za-z0-9_.\-/]+", source)
+            )
+
+        self.assertTrue(references)
+        for reference in sorted(references):
+            with self.subTest(reference=reference):
+                self.assertTrue((ROOT / reference).is_file(), reference)
 
     def test_version_is_semver_and_not_older_than_latest_release(self) -> None:
         match = re.search(
