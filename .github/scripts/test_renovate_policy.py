@@ -22,7 +22,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-NON_VULNERABILITY = "$not($exists(vulnerabilityFixVersion))"
+VULNERABILITY = "isVulnerabilityAlert = true or $exists(vulnerabilityFixVersion)"
+NON_VULNERABILITY = f"$not({VULNERABILITY})"
 COMPILER_TOOLS = {
     "github.com/golangci/golangci-lint/v2",
     "golang.org/x/tools",
@@ -46,24 +47,106 @@ class RenovatePolicyTests(unittest.TestCase):
                 return rule
         self.fail(f"rule not found: {description!r}")
 
-    def test_security_alerts_are_enabled_and_not_automerge(self) -> None:
+    def test_updates_use_one_broad_window_and_can_refresh_outside_it(self) -> None:
+        self.assertNotIn("config:semverAllWeekly", self.config["extends"])
+        self.assertNotIn(":noUnscheduledUpdates", self.config["extends"])
+        self.assertEqual(self.config["timezone"], "America/Chicago")
+        self.assertEqual(self.config["schedule"], ["* * * * 1"])
+        self.assertEqual(
+            self.config["lockFileMaintenance"]["schedule"], ["* * * * 1"]
+        )
+        self.assertTrue(self.config["updateNotScheduled"])
+        self.assertEqual(self.config["rebaseWhen"], "behind-base-branch")
+        for rule in self.package_rules:
+            self.assertNotIn("schedule", rule)
+            self.assertNotIn("updateNotScheduled", rule)
+
+    def test_local_dependents_are_tidied_without_removing_replacements(self) -> None:
+        self.assertEqual(self.config["postUpdateOptions"], ["gomodTidyAll"])
+
+    def test_security_eligibility_is_scoped_to_its_module(self) -> None:
         vulnerability = self.config["vulnerabilityAlerts"]
         self.assertTrue(vulnerability["enabled"])
         self.assertEqual(vulnerability["vulnerabilityFixStrategy"], "lowest")
-        self.assertFalse(vulnerability["automerge"])
+        self.assertNotIn("automerge", vulnerability)
         self.assertTrue(self.config["osvVulnerabilityAlerts"])
         self.assertFalse(self.config["platformAutomerge"])
 
-        security_floor = self.find_rule(
-            "Security floor updates await an explicit release decision"
-        )
-        self.assertEqual(
-            security_floor["matchJsonata"],
-            ["$exists(vulnerabilityFixVersion)"],
-        )
+        security_floor = self.find_rule("Repair root dependency vulnerabilities and prepare a patch release")
+        self.assertEqual(security_floor["matchManagers"], ["gomod"])
+        self.assertEqual(security_floor["matchDatasources"], ["go"])
+        self.assertEqual(security_floor["matchFileNames"], ["go.mod"])
+        self.assertEqual(security_floor["matchDepTypes"], ["require", "indirect"])
+        self.assertEqual(security_floor["matchJsonata"], [VULNERABILITY])
         self.assertTrue(security_floor["enabled"])
         self.assertFalse(security_floor["dependencyDashboardApproval"])
-        self.assertFalse(security_floor["automerge"])
+        self.assertTrue(security_floor["automerge"])
+        self.assertEqual(security_floor["automergeType"], "pr")
+        self.assertEqual(security_floor["automergeStrategy"], "squash")
+        self.assertEqual(len(security_floor["bumpVersions"]), 1)
+        bump = security_floor["bumpVersions"][0]
+        self.assertEqual(bump["filePatterns"], ["version.go"])
+        self.assertEqual(bump["bumpType"], "patch")
+        self.assertEqual(len(bump["matchStrings"]), 1)
+        self.assertIn("(?<version>", bump["matchStrings"][0])
+        self.assertEqual(
+            [rule["description"] for rule in self.package_rules if "bumpVersions" in rule],
+            [security_floor["description"]],
+        )
+
+        for description, filename in (
+            (
+                "Keep CI tools vulnerability fixes separate from public dependency floor updates",
+                ".github/tools/go.mod",
+            ),
+            (
+                "Automatically repair example dependencies without a library release",
+                ".examples/adapter/go.mod",
+            ),
+        ):
+            with self.subTest(description=description):
+                rule = self.find_rule(description)
+                self.assertEqual(rule["matchFileNames"], [filename])
+                self.assertEqual(rule["matchJsonata"], [VULNERABILITY])
+                self.assertTrue(rule["automerge"])
+                self.assertEqual(rule["automergeType"], "pr")
+                self.assertEqual(rule["automergeStrategy"], "squash")
+                self.assertNotIn("bumpVersions", rule)
+
+    def test_indirect_lookup_uses_native_preset_and_narrow_routine_exceptions(self) -> None:
+        self.assertIn("security:gomodIndirectSecurityUpdates", self.config["extends"])
+        ordinary_exceptions = (
+            "Compiler-sensitive Go CI tools update together",
+            "Auxiliary Go CI tools update separately",
+            "Routine latest-compatible updates for the checked-in adapter example",
+        )
+        for description in ordinary_exceptions:
+            rule = self.find_rule(description)
+            self.assertTrue(rule["enabled"])
+            self.assertEqual(rule["matchJsonata"], [NON_VULNERABILITY])
+        expected_enabled = {
+            *ordinary_exceptions,
+            "Repair root dependency vulnerabilities and prepare a patch release",
+        }
+        self.assertEqual(
+            {rule["description"] for rule in self.package_rules if rule.get("enabled") is True},
+            expected_enabled,
+        )
+
+    def test_dependency_roles_cannot_share_same_package_branch(self) -> None:
+        prefixes = {
+            tuple(rule["matchFileNames"]): rule["additionalBranchPrefix"]
+            for rule in self.package_rules
+            if "additionalBranchPrefix" in rule
+        }
+        self.assertEqual(
+            prefixes,
+            {
+                ("go.mod",): "root-",
+                (".github/tools/go.mod",): "tools-",
+                (".examples/adapter/go.mod",): "examples-",
+            },
+        )
 
     def test_native_go_module_manages_each_ci_tool_once(self) -> None:
         self.assertNotIn("customManagers", self.config)
@@ -84,7 +167,7 @@ class RenovatePolicyTests(unittest.TestCase):
                     rf"(?m)^\s*{re.escape(module)}\s+v\d+\.\d+\.\d+\b",
                 )
 
-    def test_ci_dependency_groups_are_disjoint_and_exclude_security_updates(self) -> None:
+    def test_ci_dependency_groups_and_automatic_merges_are_explicit(self) -> None:
         actions = self.find_rule(
             "GitHub Actions updates stay separate from executable CI tools"
         )
@@ -99,8 +182,12 @@ class RenovatePolicyTests(unittest.TestCase):
         self.assertEqual(set(compiler["matchPackageNames"]), COMPILER_TOOLS)
         self.assertEqual(set(auxiliary["matchPackageNames"]), AUXILIARY_TOOLS)
         self.assertTrue(COMPILER_TOOLS.isdisjoint(AUXILIARY_TOOLS))
-        for rule in (actions, compiler, auxiliary):
+        for rule in (compiler, auxiliary):
             self.assertEqual(rule["matchJsonata"], [NON_VULNERABILITY])
+        for rule in (actions, compiler, auxiliary):
+            self.assertTrue(rule["automerge"])
+            self.assertEqual(rule["automergeType"], "pr")
+            self.assertEqual(rule["automergeStrategy"], "squash")
 
     def test_root_and_tools_go_directives_are_not_updated_independently(self) -> None:
         for description, file_name in (
@@ -126,7 +213,14 @@ class RenovatePolicyTests(unittest.TestCase):
         )
         self.assertEqual(rule["matchFileNames"], ["go.mod"])
         self.assertEqual(rule["matchDatasources"], ["go"])
-        self.assertEqual(rule["matchDepTypes"], ["require"])
+        self.assertEqual(rule["matchDepTypes"], ["require", "indirect"])
+        self.assertEqual(
+            set(rule["matchUpdateTypes"]),
+            {
+                "major", "minor", "patch", "pin", "digest", "pinDigest",
+                "lockFileMaintenance", "rollback", "replacement",
+            },
+        )
         self.assertFalse(rule["enabled"])
 
     def test_root_toolchain_and_example_updates_are_separate(self) -> None:
@@ -149,8 +243,14 @@ class RenovatePolicyTests(unittest.TestCase):
         self.assertEqual(
             example_dependencies["matchFileNames"], [".examples/adapter/go.mod"]
         )
+        for rule in (root_toolchain, example_go):
+            self.assertNotIn("matchJsonata", rule)
+        self.assertEqual(example_dependencies["matchJsonata"], [NON_VULNERABILITY])
         for rule in (root_toolchain, example_go, example_dependencies):
-            self.assertEqual(rule["matchJsonata"], [NON_VULNERABILITY])
+            self.assertTrue(rule["automerge"])
+            self.assertEqual(rule["automergeType"], "pr")
+            self.assertEqual(rule["automergeStrategy"], "squash")
+            self.assertNotIn("bumpVersions", rule)
 
     def test_examples_keep_local_adapter_requirement_pinned(self) -> None:
         rule = self.find_rule(
