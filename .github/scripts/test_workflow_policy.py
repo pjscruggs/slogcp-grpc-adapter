@@ -300,5 +300,14 @@ class ValidationResultGuardTests(unittest.TestCase):
                 }), 0)
 
 
+class LicensePolicyTests(unittest.TestCase):
+    def test_license_validation_uses_versioned_policy(self):
+        self.assertNotIn("date +%Y", VALIDATION)
+        self.assertNotIn("steps.year.outputs.YEAR", VALIDATION)
+        self.assertNotRegex(VALIDATION, r"sed[^\n]*copyright-year:")
+        self.assertIn("header check", VALIDATION)
+        self.assertIn(".licenserc.yaml", VALIDATION)
+
+
 if __name__ == "__main__":
     unittest.main()
