@@ -5,7 +5,7 @@ go 1.26.0
 toolchain go1.27.1
 
 require (
-	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.0.0
+	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.2.0
 	github.com/pjscruggs/slogcp v1.2.0
 	google.golang.org/grpc v1.83.2
 )
