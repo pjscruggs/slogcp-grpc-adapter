@@ -16,6 +16,10 @@ permissions:
 jobs:
   validate_latest_go:
     name: Validate Latest Stable Go
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
     uses: ./.github/workflows/validation_pipeline.yml
     with:
       go_validation_mode: latest

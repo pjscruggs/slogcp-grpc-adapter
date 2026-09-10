@@ -48,6 +48,7 @@ jobs:
     needs: release_intent
     if: needs.release_intent.outputs.should_release == 'true'
     permissions:
+      actions: read
       contents: read
       pull-requests: read
     uses: ./.github/workflows/validation_pipeline.yml
