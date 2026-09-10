@@ -44,6 +44,7 @@ jobs:
       root_spec: ${{ steps.plan.outputs.root_spec }}
       example_spec: ${{ steps.plan.outputs.example_spec }}
       tools_spec: ${{ steps.plan.outputs.tools_spec }}
+      validated_base: ${{ steps.current_base.outputs.sha }}
     steps:
       - name: Checkout validation source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -369,12 +370,60 @@ jobs:
       - ci_action_smoke
     if: always()
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
     outputs:
       validation_passed: ${{ steps.evaluate.outputs.validation_passed }}
       validated_mode: ${{ steps.evaluate.outputs.validated_mode }}
       root_version: ${{ steps.evaluate.outputs.root_version }}
       example_version: ${{ steps.evaluate.outputs.example_version }}
     steps:
+      - name: Recheck validated PR identity
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          VALIDATED_BASE: ${{ needs.validation_preflight.outputs.validated_base }}
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const expected = context.payload.pull_request;
+            const base = process.env.VALIDATED_BASE;
+            if (!/^[0-9a-f]{40}$/.test(base || '')) {
+              throw new Error('Validation did not record a current base.');
+            }
+            const {data: run} = await github.rest.actions.getWorkflowRun({
+              owner, repo, run_id: context.runId
+            });
+            if (Number(run.run_attempt) !== Number(process.env.GITHUB_RUN_ATTEMPT)) {
+              throw new Error('This validation attempt has been superseded.');
+            }
+            const {data: runs} = await github.rest.actions.listWorkflowRuns({
+              owner, repo, workflow_id: run.workflow_id,
+              event: 'pull_request', head_sha: expected.head.sha, per_page: 100
+            });
+            if (runs.workflow_runs.some(candidate =>
+              Number(candidate.id) > Number(run.id) &&
+              (candidate.pull_requests || []).some(pr => pr.number === expected.number)
+            )) {
+              throw new Error('A newer validation run exists for this PR head.');
+            }
+            const {data: pr} = await github.rest.pulls.get({
+              owner, repo, pull_number: expected.number
+            });
+            const {data: current} = await github.rest.git.getRef({
+              owner, repo, ref: `heads/${expected.base.ref}`
+            });
+            if (pr.state !== 'open' || pr.head.sha !== expected.head.sha ||
+                pr.head.repo?.full_name !== expected.head.repo.full_name ||
+                pr.base.ref !== expected.base.ref ||
+                pr.base.repo?.full_name !== `${owner}/${repo}` ||
+                current.object.sha !== base || pr.base.sha !== base) {
+              throw new Error('PR head or base changed during validation; update and rerun.');
+            }
+            core.info(`Validated current PR head ${pr.head.sha}, base ${base}, run ${run.id}, attempt ${run.run_attempt}.`);
+
       - name: Evaluate adapter local validation result
         id: evaluate
         shell: bash
