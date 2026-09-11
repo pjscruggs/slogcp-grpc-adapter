@@ -1,6 +1,6 @@
 # slogcp-grpc-adapter release policy
 
-[slogcp-grpc-adapter](README.md) connects go-grpc-middleware's logging
+[slogcp-grpc-adapter](../README.md) connects go-grpc-middleware's logging
 interceptors to a `slog.Logger` backed by slogcp. It is an independently
 versioned Go module. Applications that do not use this integration do not
 acquire the `go-grpc-middleware` dependency through slogcp itself.
@@ -14,7 +14,7 @@ the library.
 ## Go compatibility and dependency requirements
 
 The adapter's compatibility floor is Go 1.26, declared as `go 1.26.0` in
-[`go.mod`](go.mod). Renovate does not update this directive. A higher library Go
+[`go.mod`](../go.mod). Renovate does not update this directive. A higher library Go
 requirement needs a deliberate compatibility decision.
 
 The preferred compiler is recorded separately in [the `toolchain`
@@ -38,7 +38,7 @@ or publish an adapter release.
 
 ## Automated maintenance and release intent
 
-[`renovate.json`](renovate.json) separates the adapter library, preferred Go
+[`renovate.json`](../renovate.json) separates the adapter library, preferred Go
 toolchain, example module, CI tools, and GitHub Actions. Eligible updates are
 configured for Renovate-owned squash automerge after validation, without a
 routine PR-approval step. Renovate rebases branches that fall behind `main`.
@@ -50,7 +50,7 @@ must pass the adapter's compatibility tests; automatic maintenance must not
 raise the library's Go floor to make a dependency update pass.
 
 For a library security repair, Renovate also increments the patch version in
-[`version.go`](version.go). The version change is included in the dependency PR
+[`version.go`](../version.go). The version change is included in the dependency PR
 and its validation. The publisher does not create another version commit.
 Repairs to the example or CI tools do not request a library release.
 
@@ -71,7 +71,7 @@ library changes. The automated publisher accepts canonical stable `v0.x.y` and
 `v1.x.y` versions for this unsuffixed module path; it does not publish
 prerelease or build-metadata versions.
 
-The [example module](.examples/adapter/go.mod) uses local adapter source and has
+The [example module](../.examples/adapter/go.mod) uses local adapter source and has
 its own dependency requirements. Updating it demonstrates use with newer
 dependencies without imposing those requirements on adapter consumers. Example
 and tooling changes may be included in a later library release, but do not
@@ -79,10 +79,10 @@ independently cause one.
 
 ## Validation before merge
 
-The [`Validation Pipeline`](.github/workflows/validation_pipeline.yml) checks
+The [`Validation Pipeline`](../.github/workflows/validation_pipeline.yml) checks
 out immutable source commits. It requires compatibility-floor tests,
 preferred-compiler validation, example validation, and [candidate-action smoke
-tests](.github/workflows/ci-action-smoke.yml). The final `Adapter Local
+tests](../.github/workflows/ci-action-smoke.yml). The final `Adapter Local
 Validation Policy` check requires successful results from every applicable job.
 A failed, cancelled, or unexpectedly skipped job does not satisfy that
 requirement.
@@ -95,7 +95,7 @@ supporting automation.
 
 ### Native RPC regression tests
 
-[`TestInterceptorsRPC`](adapter_integration_test.go) connects a real gRPC client
+[`TestInterceptorsRPC`](../adapter_integration_test.go) connects a real gRPC client
 and server to a real slogcp handler through the adapter's public interceptor
 helpers. It uses an in-memory `bufconn` connection rather than a cloud
 deployment. It checks unary, client-streaming, server-streaming, and
@@ -109,8 +109,8 @@ adapter's declared lower dependency requirement works.
 
 ### Tools and compilers
 
-CI tools are declared in [a separate module](.github/tools/go.mod) and built by
-[`install_ci_tools.sh`](.github/scripts/install_ci_tools.sh). Validation
+CI tools are declared in [a separate module](../.github/tools/go.mod) and built by
+[`install_ci_tools.sh`](../.github/scripts/install_ci_tools.sh). Validation
 executes the resulting formatter, linter, license checker, and vulnerability
 checker. Formatting and tidy steps must leave the candidate clean, and the
 verification commands must pass. Merely printing a changed tool's version is not
@@ -136,7 +136,7 @@ merge. The publisher separately runs validation on the exact release commit.
 
 ## Release validation and cloud coverage
 
-[`Auto Release`](.github/workflows/auto-release.yml) starts when a push to
+[`Auto Release`](../.github/workflows/auto-release.yml) starts when a push to
 `main` changes `version.go`. It checks for a genuine increasing version
 transition and calls the reusable validation workflow on the immutable release
 SHA. The signing job requires both successful completion and the workflow's
@@ -201,13 +201,13 @@ scheduled release-recovery reconciler in this workflow.
 
 ## Implementation and release records
 
-[`renovate.json`](renovate.json) defines update scope and patch-version
+[`renovate.json`](../renovate.json) defines update scope and patch-version
 preparation.
-[`validate_renovate_pr.py`](.github/scripts/validate_renovate_pr.py) checks
+[`validate_renovate_pr.py`](../.github/scripts/validate_renovate_pr.py) checks
 candidate scope and version intent. The [validation
-workflow](.github/workflows/validation_pipeline.yml), [release policy
-code](.github/scripts/release_policy.py), and [release
-workflow](.github/workflows/auto-release.yml) implement the checks summarized
+workflow](../.github/workflows/validation_pipeline.yml), [release policy
+code](../.github/scripts/release_policy.py), and [release
+workflow](../.github/workflows/auto-release.yml) implement the checks summarized
 here. Policy changes should update this document in the same PR as the
 implementation.
 
