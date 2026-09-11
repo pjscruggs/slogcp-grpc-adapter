@@ -29,11 +29,31 @@ import (
 type Logger struct {
 	log      *slog.Logger
 	mapLevel func(grpc_logging.Level) slog.Level
+	policy   LoggerPolicy
 }
 
 type loggerConfig struct {
 	logger      *slog.Logger
 	levelMapper func(grpc_logging.Level) slog.Level
+	policy      LoggerPolicy
+}
+
+// LoggerPolicy controls which logger handles each event.
+type LoggerPolicy int
+
+const (
+	// Fixed always uses the logger captured at construction (the default).
+	Fixed LoggerPolicy = iota
+	// PreferContext uses a logger stored by slogcp.ContextWithLogger when present,
+	// otherwise the logger captured at construction.
+	PreferContext
+)
+
+// WithLoggerPolicy selects the event logger policy. Unknown values behave as Fixed.
+// PreferContext selects the entire contextual logger, including its destination,
+// filtering, groups and redaction; attributes from the fallback are not merged.
+func WithLoggerPolicy(policy LoggerPolicy) LoggerOption {
+	return func(cfg *loggerConfig) { cfg.policy = policy }
 }
 
 // LoggerOption configures a [Logger] created by [NewLogger].
@@ -74,11 +94,13 @@ func NewLogger(handler *slogcp.Handler, opts ...LoggerOption) *Logger {
 	return &Logger{
 		log:      cfg.logger,
 		mapLevel: cfg.levelMapper,
+		policy:   cfg.policy,
 	}
 }
 
 // WithLogger makes [NewLogger] use logger instead of constructing one from a handler.
 // A nil logger is ignored.
+// With PreferContext, logger is the fallback when the event context has no logger.
 //
 // Example:
 //
@@ -110,7 +132,13 @@ func (l *Logger) Log(ctx context.Context, level grpc_logging.Level, msg string, 
 		return
 	}
 	attrs := buildAttrs(fields)
-	l.log.LogAttrs(ctx, l.mapLevel(level), msg, attrs...)
+	selected := l.log
+	if l.policy == PreferContext {
+		if contextual, ok := slogcp.LoggerFromContext(ctx); ok {
+			selected = contextual
+		}
+	}
+	selected.LogAttrs(ctx, l.mapLevel(level), msg, attrs...)
 }
 
 // UnaryServerInterceptor returns a unary server interceptor that logs through slogcp.

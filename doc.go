@@ -17,13 +17,19 @@
 // It implements logging.Logger by forwarding records to a slog.Logger backed by a
 // slogcp handler, stringifying key/value pairs from the middleware into slog.Attr
 // values and preserving the gRPC context for trace propagation. When no handler
-// or logger is supplied, the adapter falls back to slog.Default so existing
-// slogcp defaults still apply.
+// or logger is supplied, the adapter captures slog.Default at construction.
+// WithLoggerPolicy(PreferContext) opts in to selecting the logger stored by
+// slogcp.ContextWithLogger in each event context, using the captured logger as
+// fallback. Selection preserves the chosen logger's full handler pipeline;
+// attributes from separate loggers are not merged.
 //
 // The helpers UnaryServerInterceptor, StreamServerInterceptor, UnaryClientInterceptor
 // and StreamClientInterceptor wrap the middleware logging interceptors, keeping the
 // same options surface (for example grpc_logging.WithFieldsFromContext or
 // grpc_logging.WithLevels) while avoiding boilerplate.
+// They retain fixed selection. For contextual selection, pass a configured
+// NewLogger to the upstream middleware constructors. Install contextual loggers
+// before those interceptors run; later child contexts do not change their logs.
 //
 // Quick start:
 //
