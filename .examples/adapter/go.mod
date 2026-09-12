@@ -3,7 +3,7 @@ module github.com/pjscruggs/slogcp-grpc-adapter/examples/adapter
 go 1.27.1
 
 require (
-	github.com/pjscruggs/slogcp v1.2.9-0.20260911232715-16ace7859b51
+	github.com/pjscruggs/slogcp v1.3.0
 	github.com/pjscruggs/slogcp-grpc-adapter v0.0.0
 	google.golang.org/grpc v1.83.2
 )
