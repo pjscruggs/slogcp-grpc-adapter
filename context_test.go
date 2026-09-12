@@ -25,7 +25,7 @@ import (
 	"testing"
 
 	grpc_logging "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
-	"github.com/pjscruggs/slogcp"
+	"github.com/pjscruggs/slogcp/v2"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 )

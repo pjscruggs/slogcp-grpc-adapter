@@ -1,4 +1,4 @@
-module github.com/pjscruggs/slogcp-grpc-adapter/.github/tools
+module github.com/pjscruggs/slogcp-grpc-adapter/v2/.github/tools
 
 go 1.26.0
 

@@ -214,7 +214,7 @@
       "description": "Do not update the local unpublished adapter requirement used by examples",
       "matchManagers": ["gomod"],
       "matchFileNames": [".examples/**"],
-      "matchPackageNames": ["github.com/pjscruggs/slogcp-grpc-adapter"],
+      "matchPackageNames": ["github.com/pjscruggs/slogcp-grpc-adapter/v2"],
       "enabled": false
     }
   ],

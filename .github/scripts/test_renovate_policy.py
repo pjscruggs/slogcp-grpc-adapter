@@ -258,7 +258,7 @@ class RenovatePolicyTests(unittest.TestCase):
         )
         self.assertEqual(
             rule["matchPackageNames"],
-            ["github.com/pjscruggs/slogcp-grpc-adapter"],
+            ["github.com/pjscruggs/slogcp-grpc-adapter/v2"],
         )
         self.assertFalse(rule["enabled"])
 

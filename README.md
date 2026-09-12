@@ -1,5 +1,9 @@
 # slogcp-grpc-adapter
 
+Version 2 uses `github.com/pjscruggs/slogcp/v2` and is imported through
+`github.com/pjscruggs/slogcp-grpc-adapter/v2`. Upgrade both modules together so
+handler types and request context loggers come from the same slogcp version.
+
 An adapter that lets the [slogcp](https://github.com/pjscruggs/slogcp)
 structured logging handler plug directly into the
 [go-grpc-middleware](https://github.com/grpc-ecosystem/go-grpc-middleware)
@@ -24,7 +28,7 @@ affecting the core slogcp module graph.
 ## Installation
 
 ```bash
-go get github.com/pjscruggs/slogcp-grpc-adapter
+go get github.com/pjscruggs/slogcp-grpc-adapter/v2
 ```
 
 You will usually also want:
@@ -165,8 +169,8 @@ import (
 	"os"
 
 	grpc_logging "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
-	"github.com/pjscruggs/slogcp"
-	"github.com/pjscruggs/slogcp-grpc-adapter"
+	"github.com/pjscruggs/slogcp/v2"
+	"github.com/pjscruggs/slogcp-grpc-adapter/v2"
 	"google.golang.org/grpc"
 )
 

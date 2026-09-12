@@ -17,10 +17,10 @@ package main
 import (
 	"io"
 
-	"github.com/pjscruggs/slogcp"
+	"github.com/pjscruggs/slogcp/v2"
 	"google.golang.org/grpc"
 
-	slogcpadapter "github.com/pjscruggs/slogcp-grpc-adapter"
+	slogcpadapter "github.com/pjscruggs/slogcp-grpc-adapter/v2"
 )
 
 // ExampleUnaryServerInterceptor demonstrates wiring slogcp into go-grpc-middleware logging interceptors.

@@ -1,10 +1,10 @@
-module github.com/pjscruggs/slogcp-grpc-adapter/examples/adapter
+module github.com/pjscruggs/slogcp-grpc-adapter/v2/examples/adapter
 
 go 1.27.1
 
 require (
-	github.com/pjscruggs/slogcp v1.3.0
-	github.com/pjscruggs/slogcp-grpc-adapter v0.0.0
+	github.com/pjscruggs/slogcp-grpc-adapter/v2 v2.0.0-unpublished
+	github.com/pjscruggs/slogcp/v2 v2.0.0-20260912111130-6c625f7e5df6
 	google.golang.org/grpc v1.83.2
 )
 
@@ -26,4 +26,4 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 
-replace github.com/pjscruggs/slogcp-grpc-adapter => ../..
+replace github.com/pjscruggs/slogcp-grpc-adapter/v2 => ../..

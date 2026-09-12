@@ -204,7 +204,7 @@ jobs:
           fi
           gofmt -w "${root_go_files[@]}"
           "$CI_TOOLS_BIN/goimports" \
-            -local github.com/pjscruggs/slogcp-grpc-adapter \
+            -local github.com/pjscruggs/slogcp-grpc-adapter/v2 \
             -w "${root_go_files[@]}"
 
       - name: Ensure root module metadata is tidy
@@ -333,7 +333,7 @@ jobs:
 
           gofmt -w "${example_go_files[@]}"
           "$CI_TOOLS_BIN/goimports" \
-            -local github.com/pjscruggs/slogcp-grpc-adapter \
+            -local github.com/pjscruggs/slogcp-grpc-adapter/v2 \
             -w "${example_go_files[@]}"
           (cd .examples/adapter && go mod tidy)
           (cd .examples/adapter && go test -race -count=1 ./...)

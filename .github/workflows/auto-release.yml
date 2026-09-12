@@ -10,18 +10,23 @@ on:
         description: Optional release version; must match this mainline Version transition.
         required: false
         type: string
+      pr_number:
+        description: Validate a pull request through cloud E2E without publishing a release
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: auto-release-main
+  group: ${{ inputs.pr_number != '' && format('manual-module-e2e-{0}', inputs.pr_number) || 'auto-release-main' }}
   cancel-in-progress: false
   queue: max
 
 jobs:
   release_intent:
     name: Detect Release Intent
+    if: inputs.pr_number == ''
     runs-on: ubuntu-latest
     outputs:
       should_release: ${{ steps.intent.outputs.should_release }}
@@ -53,9 +58,45 @@ jobs:
       pull-requests: read
     uses: ./.github/workflows/validation_pipeline.yml
 
+  release_e2e:
+    name: Validate Release With Cloud E2E
+    needs: [release_intent, release_preflight]
+    if: needs.release_intent.outputs.should_release == 'true'
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+      id-token: write
+    uses: ./.github/workflows/module-e2e.yml
+    secrets: inherit
+
+  manual_module_e2e:
+    if: github.event_name == 'workflow_dispatch' && inputs.pr_number != ''
+    uses: ./.github/workflows/module-e2e.yml
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+      id-token: write
+    with:
+      pr_number: ${{ inputs.pr_number }}
+    secrets: inherit
+
+  manual_module_e2e_policy:
+    name: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number != '' && 'Module E2E' || 'Manual Module Proof' }}
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.pr_number != ''
+    needs: manual_module_e2e
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the full manual candidate suite
+        env:
+          E2E_RESULT: ${{ needs.manual_module_e2e.result }}
+        run: |
+          test "$E2E_RESULT" = success
+
   release:
     name: Create Signed Tag And Release
-    needs: [ release_intent, release_preflight ]
+    needs: [ release_intent, release_preflight, release_e2e ]
     if: always() && needs.release_intent.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     environment: release-tags
@@ -67,10 +108,12 @@ jobs:
       - name: Require Successful Release Validation
         env:
           VALIDATION_RESULT: ${{ needs.release_preflight.result }}
+          E2E_RESULT: ${{ needs.release_e2e.result }}
           VALIDATION_PASSED: ${{ needs.release_preflight.outputs.validation_passed }}
         run: |
           set -euo pipefail
           test "$VALIDATION_RESULT" = success
+          test "$E2E_RESULT" = success
           test "$VALIDATION_PASSED" = true
 
       - name: Checkout Validated Commit

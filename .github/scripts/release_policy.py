@@ -29,7 +29,7 @@ from pathlib import Path
 
 
 VERSION = re.compile(
-    r'^(?:var|const) Version = "(v(0|1)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*))"$',
+    r'^(?:var|const) Version = "(v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*))"$',
     re.MULTILINE,
 )
 
@@ -37,7 +37,7 @@ VERSION = re.compile(
 def version_of(source: str) -> str:
     matches = list(VERSION.finditer(source))
     if len(matches) != 1:
-        raise ValueError("Expected one canonical v0/v1 Version declaration")
+        raise ValueError("Expected one canonical stable Version declaration")
     return matches[0][1]
 
 
@@ -191,7 +191,7 @@ def main() -> None:
     else:
         client = GitHub(os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"])
         version, sha = os.environ["VERSION"], os.environ["GITHUB_SHA"]
-        if not re.fullmatch(r"v[01]\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version):
+        if not re.fullmatch(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version):
             raise ValueError("Invalid release version")
         if args.operation == "publish":
             publish(client, version, sha)
