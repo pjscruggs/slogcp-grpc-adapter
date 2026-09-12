@@ -14,8 +14,8 @@ the library.
 ## Go compatibility and dependency requirements
 
 The adapter's compatibility floor is Go 1.26, declared as `go 1.26.0` in
-[`go.mod`](../go.mod). Renovate does not update this directive. A higher library Go
-requirement needs a deliberate compatibility decision.
+[`go.mod`](../go.mod). Renovate does not update this directive. A higher library
+Go requirement needs a deliberate compatibility decision.
 
 The preferred compiler is recorded separately in [the `toolchain`
 directive](https://go.dev/blog/toolchain) and can advance without raising the
@@ -50,8 +50,8 @@ must pass the adapter's compatibility tests; automatic maintenance must not
 raise the library's Go floor to make a dependency update pass.
 
 For a library security repair, Renovate also increments the patch version in
-[`version.go`](../version.go). The version change is included in the dependency PR
-and its validation. The publisher does not create another version commit.
+[`version.go`](../version.go). The version change is included in the dependency
+PR and its validation. The publisher does not create another version commit.
 Repairs to the example or CI tools do not request a library release.
 
 | Change | Maintenance policy | Adapter release intent |
@@ -71,8 +71,8 @@ library changes. The automated publisher accepts canonical stable `v0.x.y` and
 `v1.x.y` versions for this unsuffixed module path; it does not publish
 prerelease or build-metadata versions.
 
-The [example module](../.examples/adapter/go.mod) uses local adapter source and has
-its own dependency requirements. Updating it demonstrates use with newer
+The [example module](../.examples/adapter/go.mod) uses local adapter source and
+has its own dependency requirements. Updating it demonstrates use with newer
 dependencies without imposing those requirements on adapter consumers. Example
 and tooling changes may be included in a later library release, but do not
 independently cause one.
@@ -82,10 +82,10 @@ independently cause one.
 The [`Validation Pipeline`](../.github/workflows/validation_pipeline.yml) checks
 out immutable source commits. It requires compatibility-floor tests,
 preferred-compiler validation, example validation, and [candidate-action smoke
-tests](../.github/workflows/ci-action-smoke.yml). The final `Adapter Local
-Validation Policy` check requires successful results from every applicable job.
-A failed, cancelled, or unexpectedly skipped job does not satisfy that
-requirement.
+tests](../.github/workflows/ci-action-smoke.yml). The final
+`Adapter Local Validation Policy` check requires successful results from every
+applicable job. A failed, cancelled, or unexpectedly skipped job does not
+satisfy that requirement.
 
 The library tests run with the race detector. Preferred-compiler validation also
 checks formatting, module tidiness, linting, license headers, and
@@ -95,10 +95,10 @@ supporting automation.
 
 ### Native RPC regression tests
 
-[`TestInterceptorsRPC`](../adapter_integration_test.go) connects a real gRPC client
-and server to a real slogcp handler through the adapter's public interceptor
-helpers. It uses an in-memory `bufconn` connection rather than a cloud
-deployment. It checks unary, client-streaming, server-streaming, and
+[`TestInterceptorsRPC`](../adapter_integration_test.go) connects a real gRPC
+client and server to a real slogcp handler through the adapter's public
+interceptor helpers. It uses an in-memory `bufconn` connection rather than a
+cloud deployment. It checks unary, client-streaming, server-streaming, and
 bidirectional-streaming calls, including success and error results, payloads,
 final status, structured fields, and severity.
 
@@ -109,8 +109,8 @@ adapter's declared lower dependency requirement works.
 
 ### Tools and compilers
 
-CI tools are declared in [a separate module](../.github/tools/go.mod) and built by
-[`install_ci_tools.sh`](../.github/scripts/install_ci_tools.sh). Validation
+CI tools are declared in [a separate module](../.github/tools/go.mod) and built
+by [`install_ci_tools.sh`](../.github/scripts/install_ci_tools.sh). Validation
 executes the resulting formatter, linter, license checker, and vulnerability
 checker. Formatting and tidy steps must leave the candidate clean, and the
 verification commands must pass. Merely printing a changed tool's version is not
