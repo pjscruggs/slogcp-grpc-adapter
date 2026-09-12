@@ -1,219 +1,112 @@
-# slogcp-grpc-adapter release policy
+# Release policy
 
-[slogcp-grpc-adapter](../README.md) connects go-grpc-middleware's logging
-interceptors to a `slog.Logger` backed by slogcp. It is an independently
-versioned Go module. Applications that do not use this integration do not
-acquire the `go-grpc-middleware` dependency through slogcp itself.
+[slogcp-grpc-adapter](../README.md) connects go-grpc-middleware logging
+interceptors to a `slog.Logger` backed by slogcp. Its module path is
+`github.com/pjscruggs/slogcp-grpc-adapter/v2` and it uses
+`github.com/pjscruggs/slogcp/v2` for handler types and request context values.
+Applications choose the adapter separately from the core library.
 
-The adapter retains an intentional Go compatibility floor and dependency
-minimums. Eligible security repairs prepare patch releases and merge after
-validation. Publication requires tests of the exact release commit and an
-annotated signed tag. The example and development tools update separately from
-the library.
+## Compatibility and dependencies
 
-## Go compatibility and dependency requirements
+The public Go compatibility floor and minimum dependency versions are recorded
+in [`go.mod`](../go.mod). Raising the compatibility floor requires a deliberate
+decision. Renovate maintains the preferred compiler through the separate
+`toolchain` directive.
 
-The adapter's compatibility floor is Go 1.27, declared as `go 1.27.0` in
-[`go.mod`](../go.mod). Renovate does not update this directive. A higher library
-Go requirement needs a deliberate compatibility decision.
+CI tests the declared dependency graph with the race detector on both the
+compatibility compiler and the preferred compiler. It checks the actual Go
+runtime with `GOTOOLCHAIN=local`. The separately versioned example uses its own
+compiler and dependencies.
 
-The preferred compiler is recorded separately in [the `toolchain`
-directive](https://go.dev/blog/toolchain) and can advance without raising the
-consumer requirement. CI tests the adapter with a patched compiler on its Go
-compatibility line and with its preferred compiler. It uses `GOTOOLCHAIN=local`
-and checks the running compiler in each job.
+Applications may select newer dependencies through Go module resolution.
+Routine upstream releases leave the library's minimum requirements unchanged.
+Security repairs and correctness fixes can justify raising those requirements.
+The adapter and core library have independent release schedules.
 
-The library's `require` entries are minimum versions. A consuming application's
-module graph may select newer versions through [Go's minimal version
-selection](https://go.dev/ref/mod#minimal-version-selection). Routine upstream
-releases do not automatically increase the adapter's library requirements.
-Security fixes and deliberate correctness changes can justify increases,
-including changes needed for correct interceptor behavior.
+## Automated maintenance
 
-The adapter and slogcp do not share a version counter or a release schedule. The
-adapter's required slogcp version is a compatibility requirement, not a
-reference to the latest slogcp release. A newer slogcp release or a newer
-integration-test companion is not, by itself, a reason to raise that requirement
-or publish an adapter release.
+[`renovate.json`](../renovate.json) separates library security repairs, compiler
+updates, example dependencies, CI tools, and GitHub Actions. Eligible updates
+use squash automerge after the required validation succeeds against current
+`main`. Renovate rebases branches when their base advances.
 
-## Automated maintenance and release intent
+Library security repairs select the lowest fixed dependency versions and tidy
+the resulting Go graph. They also increment `Version` in
+[`version.go`](../version.go) to prepare a patch release. Validation rejects
+changes that raise the compatibility floor through routine maintenance.
 
-[`renovate.json`](../renovate.json) separates the adapter library, preferred Go
-toolchain, example module, CI tools, and GitHub Actions. Eligible updates are
-configured for Renovate-owned squash automerge after validation, without a
-routine PR-approval step. Renovate rebases branches that fall behind `main`.
-
-Reported vulnerabilities in direct or indirect library dependencies use the
-lowest fixed candidate and native Go tooling to tidy the resulting module graph.
-Additional dependency changes may be necessary to satisfy that graph. The repair
-must pass the adapter's compatibility tests; automatic maintenance must not
-raise the library's Go floor to make a dependency update pass.
-
-For a library security repair, Renovate also increments the patch version in
-[`version.go`](../version.go). The version change is included in the dependency
-PR and its validation. The publisher does not create another version commit.
-Repairs to the example or CI tools do not request a library release.
-
-| Change | Maintenance policy | Adapter release intent |
-| --- | --- | --- |
-| Adapter library security dependency repair | Lowest fixed candidate, native Go dependency resolution, required validation, and automerge | Patch increment in the repair PR |
-| Adapter code or dependency correctness fix | Maintainers select the change and its regression coverage | Explicit version increment appropriate to the release |
-| Preferred Go toolchain | Update and test the compiler; preserve the library's `go` directive | None |
-| Example Go versions and dependencies | Track the latest stable Go release and compatible dependencies; validate the example | None |
-| CI tools and GitHub Actions | Execute the changed tools or actions against the candidate | None |
-| New slogcp release | Retain the adapter's declared requirement unless an update is justified | None by itself |
-| Adapter Go compatibility floor | Explicit compatibility decision, outside routine automated updates | Explicit release decision |
-
-The publisher recognizes an increase in `Version` relative to the preceding
-mainline commit. Security labels and commit-message prefixes do not
-independently trigger publication. Maintainers choose the version for other
-library changes. The automated publisher accepts canonical stable `v0.x.y` and
-`v1.x.y` versions for this unsuffixed module path; it does not publish
-prerelease or build-metadata versions.
-
-The [example module](../.examples/adapter/go.mod) uses local adapter source and
-has its own dependency requirements. Updating it demonstrates use with newer
-dependencies without imposing those requirements on adapter consumers. Example
-and tooling changes may be included in a later library release, but do not
-independently cause one.
+Example and tooling updates run their own substantive checks. They do not
+increment the library version. Updated reusable E2E pins track the core main
+branch through an immutable digest. The cloud gate executes changed
+infrastructure after confirming it belongs to reviewed core main history.
 
 ## Validation before merge
 
-The [`Validation Pipeline`](../.github/workflows/validation_pipeline.yml) checks
-out immutable source commits. It requires compatibility-floor tests,
-preferred-compiler validation, example validation, and [candidate-action smoke
-tests](../.github/workflows/ci-action-smoke.yml). The final
-`Adapter Local Validation Policy` check requires successful results from every
-applicable job. A failed, cancelled, or unexpectedly skipped job does not
-satisfy that requirement.
+[`Validation Pipeline`](../.github/workflows/validation_pipeline.yml) checks
+formatting, module tidiness, license headers, lint, vulnerabilities, race tests,
+example behavior, and candidate CI actions. The final
+`Adapter Local Validation Policy` requires every expected job to succeed.
+Failed, cancelled, skipped, or missing required work prevents acceptance.
 
-The library tests run with the race detector. Preferred-compiler validation also
-checks formatting, module tidiness, linting, license headers, and
-vulnerabilities. The example has its own formatting, tidy, race-test, and
-vulnerability checks. CI helper tests and shell syntax checks validate the
-supporting automation.
+The native RPC tests exercise unary, client-streaming, server-streaming, and
+bidirectional-streaming calls using an in-memory gRPC connection. They cover
+interceptor completion, payloads, status fields, severity, and trace context
+with the adapter's declared middleware requirement.
 
-### Native RPC regression tests
+[`Module E2E`](../.github/workflows/module-e2e.yml) additionally runs the complete
+cloud suite with exact adapter and core commits. The suite includes Cloud
+Logging API delivery, Pub/Sub propagation, HTTP propagation, and gRPC
+interceptor behavior. It preserves the supplied module sources and records the
+combined dependency graph selected by Go.
 
-[`TestInterceptorsRPC`](../adapter_integration_test.go) connects a real gRPC
-client and server to a real slogcp handler through the adapter's public
-interceptor helpers. It uses an in-memory `bufconn` connection rather than a
-cloud deployment. It checks unary, client-streaming, server-streaming, and
-bidirectional-streaming calls, including success and error results, payloads,
-final status, structured fields, and severity.
+The [branch rules](https://github.com/pjscruggs/slogcp-grpc-adapter/rules) require
+both local validation and `Module E2E`. Local and cloud gates recheck the live
+PR head and base before accepting success. Changed source or a changed base
+requires fresh validation.
 
-These tests execute in the adapter's library module. They are the relevant
-regression coverage for interceptor completion and callback behavior. Passing a
-cloud scenario with a newer middleware version would not establish that the
-adapter's declared lower dependency requirement works.
+A maintainer can dispatch the module E2E workflow with a PR number for an
+initial workflow migration. A dispatch from a feature branch must execute that
+PR's exact commit. Cloud access still depends on the configured federation
+policy for the selected workflow.
 
-### Tools and compilers
+Before the module workflow exists on main, the registered Auto Release
+workflow accepts the same optional PR number. This explicit mode runs the
+complete candidate proof and disables release publication.
 
-CI tools are declared in [a separate module](../.github/tools/go.mod) and built
-by [`install_ci_tools.sh`](../.github/scripts/install_ci_tools.sh). Validation
-executes the resulting formatter, linter, license checker, and vulnerability
-checker. Formatting and tidy steps must leave the candidate clean, and the
-verification commands must pass. Merely printing a changed tool's version is not
-sufficient.
+## Release publication
 
-The tools compiler is selected separately from the library and example
-compilers. A tool needing a newer Go version does not justify increasing the
-adapter's consumer requirement. Latest-Go canary runs supplement the normal
-required validation rather than replacing it.
+[`Auto Release`](../.github/workflows/auto-release.yml) runs when a main branch
+commit changes `version.go`. It requires a strictly increasing stable semantic
+version. Maintainers choose the version for library changes other than
+automated security repairs.
 
-### Current-base checks
+The publisher reruns local validation and the complete cloud suite on the
+immutable release commit. Both must succeed before the signing job can create
+an annotated SSH-signed tag. Publication verifies the signature and tag target.
+A conflicting tag fails publication without moving the existing tag.
 
-PR validation first requires the candidate to contain the observed current base.
-Before accepting success, it rechecks the head and repository, base branch and
-commit, workflow run, and attempt. A changed candidate or base, or a superseded
-validation run, requires updated validation.
+The signing job uses the `release-tags` environment and its configured signer
+identity. Release App credentials and the signing key are separate from cloud
+authentication. The runner removes its signing material after use. Environment
+protection restricts the release credentials to main branch publication.
 
-The [main branch
-rules](https://github.com/pjscruggs/slogcp-grpc-adapter/rules/17476192) require
-`Adapter Local Validation Policy` and use non-strict status checks. The final
-workflow check is not an atomic guarantee that the base cannot move before
-merge. The publisher separately runs validation on the exact release commit.
-
-## Release validation and cloud coverage
-
-[`Auto Release`](../.github/workflows/auto-release.yml) starts when a push to
-`main` changes `version.go`. It checks for a genuine increasing version
-transition and calls the reusable validation workflow on the immutable release
-SHA. The signing job requires both successful completion and the workflow's
-affirmative validation output. An earlier successful PR check alone is not
-enough.
-
-The adapter's release gate is local to this repository. It tests the final
-candidate's code and declared module graph; it does not compute a validation
-plan from the previous published release. Maintainers therefore need to consider
-all unreleased changes when selecting a release version and its regression
-coverage, including when the final PR changes only `version.go`.
-
-Combined root-and-adapter cloud runs can provide additional integration
-evidence. They are not a required adapter PR check or an automated prerequisite
-for adapter publication. The adapter publisher does not consume slogcp's
-root-parity cloud receipts. Additional cloud evidence must identify the source
-revisions and dependency graph it exercised.
-
-Cloud E2E is appropriate when it exercises a changed integration or cloud
-execution path. It is not a routine requirement for example dependency changes,
-preferred compiler updates, or native interceptor regressions already exercised
-by the RPC tests. Changes to cloud authentication or orchestration still need
-validation of those mechanisms before their operation is claimed as tested.
-
-## Signed tags and publication
-
-The publisher creates an annotated SSH-signed tag at the exact validated commit.
-It verifies the tag locally before pushing, then requires GitHub to report a
-valid signature and verifies the tag's target before publishing the GitHub
-release. A conflicting tag causes failure; publication does not move a version
-to different source.
-
-The signing job uses the `release-tags` environment and configured signing
-identity. It can publish with the repository's workflow token or with a
-dedicated, repository-scoped release App token that has Contents write
-permission. The App ID and private key must be configured together. Signing keys
-are separate from API credentials and are removed from the runner after the
-signing step. These credentials do not establish permission to dispatch another
-repository's workflow or execute its cloud jobs.
-
-Releases use [GitHub release
-immutability](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases).
-The associated tag and attached assets are locked after publication; the title
-and release notes can still be corrected. The workflow publishes generated
-release notes before making a best-effort request for Go proxy indexing. A proxy
-indexing delay does not require a replacement release.
+The workflow publishes release notes and requests Go proxy indexing. A delayed
+proxy refresh can finish after the tag and release are available.
 
 ## Recovery
 
-Release runs are serialized without cancelling a running release when another is
-queued. The publisher retries transient API and tag-push failures. An existing
-tag must be annotated, signature-verified, and attached to the expected commit
-before publication can resume. An existing matching published release is a
-no-op.
+Release runs are serialized. To recover a failure, rerun the original workflow
+for its version-transition commit. Manual release dispatch must use that same
+mainline transition and its declared version. A later commit with no version
+transition cannot create a replacement publication.
 
-To recover a failed publication, rerun the original workflow for its
-version-transition commit. Manual dispatch must also use a mainline transition,
-and a requested version must match its `Version`. A later `main` commit with no
-version transition is rejected. Retries retain the original version and commit
-and re-evaluate validation; they do not create a version bump loop. There is no
-scheduled release-recovery reconciler in this workflow.
+An existing matching signed tag or published release can be reused after its
+identity is verified. Transient publication failures are retried. Recovery
+retains the original version and commit and repeats the required validation.
 
-## Implementation and release records
-
-[`renovate.json`](../renovate.json) defines update scope and patch-version
-preparation.
-[`validate_renovate_pr.py`](../.github/scripts/validate_renovate_pr.py) checks
-candidate scope and version intent. The [validation
-workflow](../.github/workflows/validation_pipeline.yml), [release policy
-code](../.github/scripts/release_policy.py), and [release
-workflow](../.github/workflows/auto-release.yml) implement the checks summarized
-here. Policy changes should update this document in the same PR as the
-implementation.
-
-Use the [published
-releases](https://github.com/pjscruggs/slogcp-grpc-adapter/releases) and
-[Actions history](https://github.com/pjscruggs/slogcp-grpc-adapter/actions) to
-inspect a release's publication and validation records. Check that version's
-tagged `go.mod` for its consumer requirements. Validation added on `main` after
-a release is not evidence that the earlier release passed it.
+The [release policy code](../.github/scripts/release_policy.py),
+[Renovate scope validator](../.github/scripts/validate_renovate_pr.py), and
+workflow files define the executable policy. Consult the
+[Actions history](https://github.com/pjscruggs/slogcp-grpc-adapter/actions) and
+[published releases](https://github.com/pjscruggs/slogcp-grpc-adapter/releases)
+for the validation and publication records of a particular commit.

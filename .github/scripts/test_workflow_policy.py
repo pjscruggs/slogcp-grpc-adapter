@@ -112,7 +112,7 @@ class WorkflowPolicyTests(unittest.TestCase):
         release = AUTO_RELEASE.split("  release:\n", 1)[1]
         self.assertIn("permissions:\n      contents: write", release)
         self.assertNotIn("E2E_APP", AUTO_RELEASE)
-        self.assertNotIn("id-token:", AUTO_RELEASE)
+        self.assertNotIn("id-token:", AUTO_RELEASE.split("  release:\n", 1)[1])
         self.assertNotIn("google-github-actions/", AUTO_RELEASE)
         validate_release_checkout_pins(AUTO_RELEASE, VALIDATION)
 
@@ -129,6 +129,21 @@ class WorkflowPolicyTests(unittest.TestCase):
 
     def test_release_queue_preserves_pending_publications(self) -> None:
         self.assertIn("cancel-in-progress: false\n  queue: max", AUTO_RELEASE)
+
+    def test_manual_pr_proof_cannot_publish_or_supply_skipped_required_checks(self) -> None:
+        intent = AUTO_RELEASE.split("  release_intent:\n", 1)[1].split("  release_preflight:\n", 1)[0]
+        manual = AUTO_RELEASE.split("  manual_module_e2e:\n", 1)[1].split("  release:\n", 1)[0]
+        self.assertIn("if: inputs.pr_number == ''", intent)
+        self.assertIn("if: github.event_name == 'workflow_dispatch' && inputs.pr_number != ''", manual)
+        self.assertIn("uses: ./.github/workflows/module-e2e.yml", manual)
+        self.assertIn("pr_number: ${{ inputs.pr_number }}", manual)
+        self.assertIn("&& 'Module E2E' || 'Manual Module Proof'", manual)
+        self.assertIn("if: always() && github.event_name == 'workflow_dispatch' && inputs.pr_number != ''", manual)
+        self.assertIn("format('manual-module-e2e-{0}', inputs.pr_number)", AUTO_RELEASE)
+        caller = WORKFLOW_SOURCES["module-e2e.yml"]
+        self.assertRegex(caller, r"module-candidate-e2e\.yml@[0-9a-f]{40} # main")
+        self.assertIn("local_check_name: Adapter Local Validation Policy", caller)
+        self.assertNotIn("infrastructure_revision:", caller)
 
     def test_preflight_uses_full_history_and_requires_the_adapter_example(self) -> None:
         preflight = VALIDATION.split("  root_floor_validation:", 1)[0]
@@ -233,7 +248,7 @@ class WorkflowPolicyTests(unittest.TestCase):
                 self.assertTrue((ROOT / reference).is_file(), reference)
 
     def test_version_uses_the_publisher_canonical_module_version(self) -> None:
-        self.assertRegex(release_policy.version_of(VERSION_SOURCE), r"^v[01]\.\d+\.\d+$")
+        self.assertRegex(release_policy.version_of(VERSION_SOURCE), r"^v\d+\.\d+\.\d+$")
 
 
 class ValidationResultGuardTests(unittest.TestCase):
@@ -276,15 +291,24 @@ class ValidationResultGuardTests(unittest.TestCase):
 
     def test_release_requires_success_and_explicit_validation_output(self):
         marker = "      - name: Require Successful Release Validation\n"
-        values = {"VALIDATION_RESULT": "success", "VALIDATION_PASSED": "true"}
+        values = {"VALIDATION_RESULT": "success", "VALIDATION_PASSED": "true", "E2E_RESULT": "success"}
         self.assertEqual(self.execute(AUTO_RELEASE, marker, values), 0)
         for result in ("failure", "skipped", "cancelled", "neutral", ""):
             with self.subTest(result=result):
                 self.assertNotEqual(self.execute(AUTO_RELEASE, marker, {**values, "VALIDATION_RESULT": result}), 0)
+                self.assertNotEqual(self.execute(AUTO_RELEASE, marker, {**values, "E2E_RESULT": result}), 0)
         for output in ("false", "", "success"):
             with self.subTest(output=output):
                 self.assertNotEqual(self.execute(AUTO_RELEASE, marker, {**values, "VALIDATION_PASSED": output}), 0)
         self.assertNotEqual(self.execute(AUTO_RELEASE, marker, {}), 0)
+
+    def test_manual_module_proof_rejects_failed_or_skipped_cloud_validation(self):
+        marker = "      - name: Require the full manual candidate suite\n"
+        source = AUTO_RELEASE.split("\n  release:\n", 1)[0]
+        self.assertEqual(self.execute(source, marker, {"E2E_RESULT": "success"}), 0)
+        for result in ("failure", "skipped", "cancelled", "neutral", ""):
+            with self.subTest(result=result):
+                self.assertNotEqual(self.execute(source, marker, {"E2E_RESULT": result}), 0)
 
     def test_optional_release_app_credentials_must_be_configured_together(self):
         marker = "      - name: Detect Release App Credentials\n"
