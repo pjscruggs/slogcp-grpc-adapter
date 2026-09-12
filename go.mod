@@ -6,7 +6,7 @@ toolchain go1.27.1
 
 require (
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.2.0
-	github.com/pjscruggs/slogcp v1.2.9-0.20260911232715-16ace7859b51
+	github.com/pjscruggs/slogcp v1.3.0
 	go.opentelemetry.io/otel/trace v1.44.0
 	google.golang.org/grpc v1.83.2
 )
