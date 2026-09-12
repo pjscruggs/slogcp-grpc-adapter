@@ -13,7 +13,7 @@ the library.
 
 ## Go compatibility and dependency requirements
 
-The adapter's compatibility floor is Go 1.26, declared as `go 1.26.0` in
+The adapter's compatibility floor is Go 1.27, declared as `go 1.27.0` in
 [`go.mod`](../go.mod). Renovate does not update this directive. A higher library
 Go requirement needs a deliberate compatibility decision.
 
