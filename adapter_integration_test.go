@@ -120,7 +120,7 @@ func (s *rpcTestService) FullDuplexCall(stream grpc.BidiStreamingServer[pb.Strea
 
 // newRPCConnection wires all four public interceptor helpers into a real gRPC
 // transport and a real slogcp handler. Only the network socket is in-memory.
-func newRPCConnection(t *testing.T, code codes.Code) (*grpc.ClientConn, *rpcLogBuffer) {
+func newRPCConnection(t *testing.T, code codes.Code, contextual ...bool) (*grpc.ClientConn, *rpcLogBuffer) {
 	t.Helper()
 	logs := &rpcLogBuffer{}
 	handler, err := slogcp.NewHandler(logs, slogcp.WithLevel(slog.LevelDebug), slogcp.WithSeverityAliases(false))
@@ -143,10 +143,43 @@ func newRPCConnection(t *testing.T, code codes.Code) (*grpc.ClientConn, *rpcLogB
 			return grpc_logging.Fields{"request_id", strings.Join(md.Get("x-request-id"), ",")}
 		}),
 	}
+
+	unaryServer := UnaryServerInterceptor(handler, options...)
+	streamServer := StreamServerInterceptor(handler, options...)
+	unaryClient := UnaryClientInterceptor(handler, options...)
+	streamClient := StreamClientInterceptor(handler, options...)
+	if len(contextual) > 0 && contextual[0] {
+		base := slog.New(handler)
+		adapted := NewLogger(nil, WithLogger(base), WithLoggerPolicy(PreferContext))
+		// Request markers come only from bound loggers, never middleware fields.
+		enrich := func(ctx context.Context) context.Context {
+			md, ok := metadata.FromIncomingContext(ctx)
+			if !ok {
+				md, _ = metadata.FromOutgoingContext(ctx)
+			}
+			return slogcp.ContextWithLogger(ctx, base.With("logger_request", strings.Join(md.Get("x-request-id"), ",")))
+		}
+		us := grpc_logging.UnaryServerInterceptor(adapted, options...)
+		ss := grpc_logging.StreamServerInterceptor(adapted, options...)
+		uc := grpc_logging.UnaryClientInterceptor(adapted, options...)
+		sc := grpc_logging.StreamClientInterceptor(adapted, options...)
+		unaryServer = func(ctx context.Context, req any, info *grpc.UnaryServerInfo, next grpc.UnaryHandler) (any, error) {
+			return us(enrich(ctx), req, info, next)
+		}
+		streamServer = func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, next grpc.StreamHandler) error {
+			return ss(srv, &contextServerStream{ServerStream: stream, ctx: enrich(stream.Context())}, info, next)
+		}
+		unaryClient = func(ctx context.Context, method string, req, reply any, conn *grpc.ClientConn, invoke grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+			return uc(enrich(ctx), method, req, reply, conn, invoke, opts...)
+		}
+		streamClient = func(ctx context.Context, desc *grpc.StreamDesc, conn *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+			return sc(enrich(ctx), desc, conn, method, streamer, opts...)
+		}
+	}
 	listener := bufconn.Listen(1024 * 1024)
 	server := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(UnaryServerInterceptor(handler, options...)),
-		grpc.ChainStreamInterceptor(StreamServerInterceptor(handler, options...)),
+		grpc.ChainUnaryInterceptor(unaryServer),
+		grpc.ChainStreamInterceptor(streamServer),
 	)
 	pb.RegisterTestServiceServer(server, &rpcTestService{result: code})
 	served := make(chan error, 1)
@@ -170,8 +203,8 @@ func newRPCConnection(t *testing.T, code codes.Code) (*grpc.ClientConn, *rpcLogB
 			return listener.DialContext(ctx)
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithChainUnaryInterceptor(UnaryClientInterceptor(handler, options...)),
-		grpc.WithChainStreamInterceptor(StreamClientInterceptor(handler, options...)),
+		grpc.WithChainUnaryInterceptor(unaryClient),
+		grpc.WithChainStreamInterceptor(streamClient),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -333,5 +366,40 @@ func assertRPCLogs(t *testing.T, logs *rpcLogBuffer, method string, code codes.C
 	}
 	if seen["client"] != 1 || seen["server"] != 1 {
 		t.Fatalf("expected one client and one server completion, got %v: %s", seen, logs.snapshot())
+	}
+}
+
+// contextServerStream supplies the context installed by outer middleware.
+type contextServerStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+// Context returns the enriched stream context.
+func (s *contextServerStream) Context() context.Context { return s.ctx }
+
+// TestContextualInterceptorsRPC checks logger-only attributes in all RPC directions.
+func TestContextualInterceptorsRPC(t *testing.T) {
+	for _, invoke := range []struct {
+		name string
+		call func(*testing.T, context.Context, pb.TestServiceClient) error
+	}{{"UnaryCall", invokeUnary}, {"StreamingOutputCall", invokeServerStream}, {"StreamingInputCall", invokeClientStream}, {"FullDuplexCall", invokeBidiStream}} {
+		for _, code := range []codes.Code{codes.OK, codes.PermissionDenied} {
+			t.Run(invoke.name+"/"+code.String(), func(t *testing.T) {
+				conn, logs := newRPCConnection(t, code, true)
+				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+				defer cancel()
+				ctx = metadata.AppendToOutgoingContext(ctx, "x-request-id", t.Name())
+				if err := invoke.call(t, ctx, pb.NewTestServiceClient(conn)); status.Code(err) != code {
+					t.Fatalf("RPC status: %v", err)
+				}
+				assertRPCLogs(t, logs, invoke.name, code)
+				for _, record := range decodeContextLogs(t, logs.snapshot()) {
+					if record["logger_request"] != t.Name() {
+						t.Fatalf("context logger lost: %v", record)
+					}
+				}
+			})
+		}
 	}
 }

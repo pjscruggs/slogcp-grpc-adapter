@@ -6,7 +6,7 @@ An adapter that lets the [slogcp](https://github.com/pjscruggs/slogcp) structure
 
 - Keep using go-grpc-middleware's logging interceptors for unary and streaming RPCs (on both client and server).
 - Emit JSON logs shaped for Google Cloud Logging / Error Reporting / Cloud Trace via slogcp.
-- Preserve request-scoped loggers, attributes, and trace context coming from `context.Context`.
+- Preserve trace context, and opt in to selecting request-scoped loggers and their attributes from `context.Context`.
 
 It lives in its own module so that `github.com/grpc-ecosystem/go-grpc-middleware` is *not* a dependency of slogcp itself. Projects that want this integration can opt in to the adapter without affecting the core slogcp module graph.
 
@@ -197,6 +197,54 @@ grpcServer := grpc.NewServer(
 ```
 
 In this mode, the `handler` argument to `NewLogger` is optional; the adapter will prefer the provided logger and only fall back to building a logger from the handler when no logger is supplied.
+
+### Selecting a request-scoped logger
+
+Selection is fixed by default, including in the four convenience interceptor
+helpers. Enable contextual selection with an adapter option:
+
+```go
+common := base.With("service", "billing")
+adapted := slogcpadapter.NewLogger(nil,
+    slogcpadapter.WithLogger(common),
+    slogcpadapter.WithLoggerPolicy(slogcpadapter.PreferContext),
+)
+ctx = slogcp.ContextWithLogger(ctx, common.With("request_id", "alpha"))
+
+unaryServer := grpc_logging.UnaryServerInterceptor(adapted)
+streamServer := grpc_logging.StreamServerInterceptor(adapted)
+unaryClient := grpc_logging.UnaryClientInterceptor(adapted)
+streamClient := grpc_logging.StreamClientInterceptor(adapted)
+```
+
+`PreferContext` selects the entire logger stored by `slogcp.ContextWithLogger`,
+even when `WithLogger` supplies a different logger. Its destination, level filter,
+redaction, bound attributes and groups apply. A filtered or discarded event is
+not retried through the fallback. Attributes bound only to the fallback are not
+merged; derive request loggers from a common base to share attributes. An open
+`WithGroup` also groups RPC event fields. Duplicate fields follow the selected
+handler's existing rules. Cloud Logging formatting and trace extraction require
+a selected handler that supports them.
+
+Absent or nil contexts use the construction-time fallback: `WithLogger`, the
+supplied handler, or the default captured by `NewLogger`, in that order. Later
+`slog.SetDefault` calls do not change that fallback. An explicitly stored default
+logger counts as present. `ContextWithLogger(ctx, nil)` leaves inherited loggers
+intact; a nil context remains nil. Cancellation does not suppress adapter logging.
+Unknown policy values behave as `Fixed`.
+
+Install the contextual logger **before** the logging interceptor runs. On unary
+servers, put enrichment in an outer interceptor; on streaming servers, pass a
+stream wrapper whose `Context()` returns the enriched context. On clients, attach
+the logger to the call context or in an outer interceptor. The first interceptor
+in a gRPC chain is outermost. The middleware retains its event context: a child
+context created inside a handler or inner interceptor does not retroactively
+change completion logs. Middleware field injection and trace propagation are
+separate from logger selection.
+
+The convenience helpers continue to accept upstream middleware options only.
+Use `NewLogger` with the upstream constructors above for contextual selection or
+other adapter options.
 
 ### Custom level mapping
 
