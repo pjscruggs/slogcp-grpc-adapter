@@ -20,7 +20,7 @@ import (
 	"log/slog"
 
 	grpc_logging "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
-	"github.com/pjscruggs/slogcp"
+	"github.com/pjscruggs/slogcp/v2"
 	"google.golang.org/grpc"
 )
 

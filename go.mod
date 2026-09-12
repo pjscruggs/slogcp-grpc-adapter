@@ -1,4 +1,4 @@
-module github.com/pjscruggs/slogcp-grpc-adapter
+module github.com/pjscruggs/slogcp-grpc-adapter/v2
 
 go 1.27.0
 
@@ -6,7 +6,7 @@ toolchain go1.27.1
 
 require (
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.2.0
-	github.com/pjscruggs/slogcp v1.3.0
+	github.com/pjscruggs/slogcp/v2 v2.0.0-20260912111130-6c625f7e5df6
 	go.opentelemetry.io/otel/trace v1.44.0
 	google.golang.org/grpc v1.83.2
 )
