@@ -19,6 +19,7 @@ github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.4 h1:9ZJYjPEJpcleIKcqysXOo1
 github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.4/go.mod h1:0xydIeg2omQ9DH6zYMP24Kk57793rnLUvP8fwdbFvz8=
 github.com/pjscruggs/slogcp v1.3.0 h1:pvy4XqpahVobxHeVW0tJVUzcdzHyajiDSpK2R5lglEI=
 github.com/pjscruggs/slogcp v1.3.0/go.mod h1:3U01bzw0m58xGFywfsJNIyCul9ZWUm7UeLN+9I2BZ+c=
+github.com/pjscruggs/slogcp/v2 v2.0.0/go.mod h1:uIlMejEucy2TCNXMLhrqFzPvyBQNkidXF7wnUrTl2iY=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
 github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=
