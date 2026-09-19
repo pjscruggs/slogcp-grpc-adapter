@@ -211,12 +211,12 @@
       "addLabels": ["renovate:examples", "dependency-scope:examples"]
     },
     {
-      "description": "Exclude the gRPC v1.84 release line affected by GO-2026-6443",
+      "description": "Exclude gRPC v1.84.0 affected by GO-2026-6443",
       "matchManagers": ["gomod"],
       "matchDatasources": ["go"],
       "matchFileNames": [".examples/adapter/go.mod"],
       "matchPackageNames": ["google.golang.org/grpc"],
-      "allowedVersions": "!/^v?1\\.84\\./"
+      "allowedVersions": "!/^v?1\\.84\\.0$/"
     },
     {
       "description": "Do not update the local unpublished adapter requirement used by examples",
