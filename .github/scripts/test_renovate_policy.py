@@ -252,6 +252,21 @@ class RenovatePolicyTests(unittest.TestCase):
             self.assertEqual(rule["automergeStrategy"], "squash")
             self.assertNotIn("bumpVersions", rule)
 
+    def test_example_grpc_exclusion_leaves_fixed_stable_releases_available(self) -> None:
+        rule = self.find_rule(
+            "Exclude the gRPC v1.84 release line affected by GO-2026-6443"
+        )
+        self.assertEqual(rule["matchManagers"], ["gomod"])
+        self.assertEqual(rule["matchDatasources"], ["go"])
+        self.assertEqual(rule["matchFileNames"], [".examples/adapter/go.mod"])
+        self.assertEqual(rule["matchPackageNames"], ["google.golang.org/grpc"])
+        self.assertEqual(rule["allowedVersions"], r"!/^v?1\.84\./")
+        excluded = re.compile(rule["allowedVersions"][2:-1])
+        for version in ("v1.84.0", "1.84.1", "v1.84.20"):
+            self.assertIsNotNone(excluded.search(version))
+        for version in ("v1.82.2", "v1.83.2", "v1.85.0", "v2.0.0"):
+            self.assertIsNone(excluded.search(version))
+
     def test_examples_keep_local_adapter_requirement_pinned(self) -> None:
         rule = self.find_rule(
             "Do not update the local unpublished adapter requirement used by examples"

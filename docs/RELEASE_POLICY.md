@@ -73,6 +73,12 @@ Before the module workflow exists on main, the registered Auto Release
 workflow accepts the same optional PR number. This explicit mode runs the
 complete candidate proof and disables release publication.
 
+The example temporarily excludes the gRPC v1.84 release line because
+[GO-2026-6443](https://pkg.go.dev/vuln/GO-2026-6443) affects that line. Stable
+v1.83.2 remains available, and future stable v1.85 or newer updates are still
+eligible. Remove or narrow this exclusion when the advisory identifies a fixed
+stable release in the v1.84 line. Vulnerability scanning remains required.
+
 ## Release publication
 
 [`Auto Release`](../.github/workflows/auto-release.yml) runs when a main branch
