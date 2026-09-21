@@ -1,0 +1,39 @@
+name: Verify PR53 Historical Cloud Evidence
+
+on:
+  push:
+    branches: [feat/v2-major-release]
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+  pull-requests: read
+
+jobs:
+  verify:
+    name: Module E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact bootstrap candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify reviewed verifier and test contents
+        run: |
+          sha256sum --check <<'DIGESTS'
+          fa3e5d4ddda463a59ac017bf463b039f3c7ff4ca784cd80515beb6b27d019170  .github/scripts/verify_existing_e2e.py
+          911bf03887bde6834f9469e4d3a860b6f0cf99a8cde0d9bfd7716983902b3953  .github/scripts/test_verify_existing_e2e.py
+          DIGESTS
+
+      - name: Test historical evidence rejection
+        run: python -B -m unittest discover -s .github/scripts -p test_verify_existing_e2e.py -v
+
+      - name: Verify historical cloud proof and current candidate authority
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python -B .github/scripts/verify_existing_e2e.py
