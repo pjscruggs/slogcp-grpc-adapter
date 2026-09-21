@@ -1,4 +1,18 @@
 #!/usr/bin/env python3
+# Copyright 2025-2026 Patrick J. Scruggs
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Verify PR53's reviewed historical cloud proof without starting cloud work.
 
 This bootstrap accepts unchanged pre-existing content plus three reviewed new
@@ -18,6 +32,7 @@ REPO = "pjscruggs/slogcp-grpc-adapter"
 BRANCH = "feat/v2-major-release"
 PR = 53
 TESTED = "2ea38212529a704462df8ebaf9061596e9117e34"
+BOOTSTRAP = "aa91cf17a30ebf576ecb719c3fbbcecea9d51ead"
 BASE = "1f1c50d00022f378313672e285bc3fd32ed2b41a"
 INFRASTRUCTURE = "b60588036a577b6f840ac83c3526adcae8cdcfe3"
 RUNTIME_CORE = "26c3370d6c7e8f595d2041a460deba26e801f952"
@@ -61,7 +76,9 @@ class GitHub:
     """Only GET requests to this repository, with bounded complete pagination."""
 
     def raw(self, path):
-        require(not path.startswith("/") and ".." not in path, "Invalid API path")
+        immutable_comparison = re.fullmatch(r"compare/[0-9a-f]{40}\.\.\.[0-9a-f]{40}", path)
+        require(not path.startswith("/") and (".." not in path or immutable_comparison),
+                "Invalid API path")
         result = subprocess.run(
             ["gh", "api", "--method", "GET", f"repos/{REPO}/{path}"],
             capture_output=True, check=False, timeout=45,
@@ -173,6 +190,17 @@ def verify_trees(old_tree, new_tree):
             "Bootstrap additions must be regular files")
 
 
+def reviewed_commit(api, sha, parent):
+    commit = api.get(f"git/commits/{sha}")
+    require([p["sha"] for p in commit["parents"]] == [parent],
+            "Bootstrap repair parent differs from the exact reviewed chain")
+    require(commit.get("verification", {}).get("verified") is True,
+            "Bootstrap commit signature is not verified")
+    for role in ("author", "committer"):
+        require((commit[role]["name"], commit[role]["email"]) ==
+                ("pjscruggs", "PatrickJScruggs@gmail.com"), "Bootstrap signer identity mismatch")
+
+
 def current_authority(api, sha):
     pr = api.get(f"pulls/{PR}")
     require(pr.get("state") == "open" and not pr.get("draft"), "PR53 is not open and ready")
@@ -184,14 +212,10 @@ def current_authority(api, sha):
     comparison = api.get(f"compare/{BASE}...{sha}")
     require(comparison.get("merge_base_commit", {}).get("sha") == BASE and
             comparison.get("status") == "ahead", "Candidate does not contain current base")
-    commit = api.get(f"git/commits/{sha}")
-    require([p["sha"] for p in commit["parents"]] == [TESTED],
-            "Bootstrap must be one reviewed commit on the tested content")
-    require(commit.get("verification", {}).get("verified") is True,
-            "Bootstrap commit signature is not verified")
-    for role in ("author", "committer"):
-        require((commit[role]["name"], commit[role]["email"]) ==
-                ("pjscruggs", "PatrickJScruggs@gmail.com"), "Bootstrap signer identity mismatch")
+    # Preserve the first signed bootstrap without rewriting history. Only its
+    # single direct, reviewed repair is accepted; arbitrary ancestry is not.
+    reviewed_commit(api, BOOTSTRAP, TESTED)
+    reviewed_commit(api, sha, BOOTSTRAP)
 
 
 LOCAL_STEPS = {

@@ -26,8 +26,8 @@ jobs:
       - name: Verify reviewed verifier and test contents
         run: |
           sha256sum --check <<'DIGESTS'
-          fa3e5d4ddda463a59ac017bf463b039f3c7ff4ca784cd80515beb6b27d019170  .github/scripts/verify_existing_e2e.py
-          911bf03887bde6834f9469e4d3a860b6f0cf99a8cde0d9bfd7716983902b3953  .github/scripts/test_verify_existing_e2e.py
+          4449c932d767cadeeecc19439029c786ecf5a958a1147348a777d2ce3ac604e2  .github/scripts/verify_existing_e2e.py
+          c93be2ca6d054f3053de52ab83aaaed38e45555a49b7ead239aab262c79dffba  .github/scripts/test_verify_existing_e2e.py
           DIGESTS
 
       - name: Test historical evidence rejection

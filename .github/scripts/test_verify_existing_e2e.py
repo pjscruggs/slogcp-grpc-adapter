@@ -1,7 +1,22 @@
+# Copyright 2025-2026 Patrick J. Scruggs
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Negative tests for the one-time, read-only PR53 historical verifier."""
 
 import copy
 import hashlib
+import json
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -50,7 +65,10 @@ class Fixture:
                              base=dict(sha=v.BASE, ref="main", repo={"full_name": v.REPO})),
             "git/ref/heads/main": {"object": {"sha": v.BASE}},
             f"compare/{v.BASE}...{HEAD}": dict(status="ahead", merge_base_commit={"sha": v.BASE}),
-            f"git/commits/{HEAD}": dict(parents=[{"sha": v.TESTED}], verification={"verified": True},
+            f"git/commits/{HEAD}": dict(parents=[{"sha": v.BOOTSTRAP}], verification={"verified": True},
+                                        author=dict(name="pjscruggs", email="PatrickJScruggs@gmail.com"),
+                                        committer=dict(name="pjscruggs", email="PatrickJScruggs@gmail.com")),
+            f"git/commits/{v.BOOTSTRAP}": dict(parents=[{"sha": v.TESTED}], verification={"verified": True},
                                         author=dict(name="pjscruggs", email="PatrickJScruggs@gmail.com"),
                                         committer=dict(name="pjscruggs", email="PatrickJScruggs@gmail.com")),
             f"git/trees/{v.TESTED}?recursive=1": old,
@@ -202,6 +220,22 @@ class EvidenceTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     v.local_validation(f, HEAD)
 
+    def test_forward_repair_requires_the_exact_two_commit_signed_chain(self):
+        for sha in (HEAD, v.BOOTSTRAP):
+            for mutation in (lambda c: c.update(parents=[]),
+                             lambda c: c.update(parents=[{"sha": "d" * 40}]),
+                             lambda c: c["parents"].append({"sha": v.BASE}),
+                             lambda c: c["verification"].update(verified=False),
+                             lambda c: c["author"].update(name="other"),
+                             lambda c: c["committer"].update(email="other@example.com")):
+                f = Fixture()
+                mutation(f.data[f"git/commits/{sha}"])
+                with self.subTest(sha=sha), self.assertRaises(ValueError):
+                    v.current_authority(f, HEAD)
+        self.f.data[f"git/commits/{HEAD}"]["parents"] = [{"sha": v.TESTED}]
+        with self.assertRaisesRegex(ValueError, "exact reviewed chain"):
+            v.current_authority(self.f, HEAD)
+
     def test_stale_failed_and_superseded_local_runs_fail(self):
         path = f"actions/workflows/validation_pipeline.yml/runs?event=pull_request&head_sha={HEAD}"
         for field, value in [("head_sha", v.TESTED), ("event", "workflow_dispatch"),
@@ -267,6 +301,33 @@ class EvidenceTests(unittest.TestCase):
 
 
 class TransportTests(unittest.TestCase):
+    def test_current_authority_uses_real_transport_for_exact_sha_comparison(self):
+        fixture = Fixture()
+        def respond(command, **_kwargs):
+            self.assertEqual(command[:4], ["gh", "api", "--method", "GET"])
+            prefix = f"repos/{v.REPO}/"
+            self.assertTrue(command[4].startswith(prefix))
+            path = command[4][len(prefix):]
+            response = unittest.mock.Mock(returncode=0, stdout=json.dumps(fixture.get(path)).encode())
+            return response
+        with patch.object(v.subprocess, "run", side_effect=respond) as transport:
+            v.current_authority(v.GitHub(), HEAD)
+        routes = [call.args[0][4] for call in transport.call_args_list]
+        self.assertIn(f"repos/{v.REPO}/compare/{v.BASE}...{HEAD}", routes)
+        self.assertIn(f"repos/{v.REPO}/git/commits/{v.BOOTSTRAP}", routes)
+
+    def test_only_exact_immutable_compare_route_may_contain_dotdot(self):
+        invalid = ["../outside", "/pulls/53", "git/../pulls/53", "pulls/53?value=..",
+                   f"compare/{v.BASE}..{HEAD}", f"compare/{v.BASE}....{HEAD}",
+                   f"compare/main...{HEAD}", f"compare/{v.BASE}...{HEAD}/../pulls",
+                   f"compare/{v.BASE}...{HEAD}?page=1", f"other/{v.BASE}...{HEAD}",
+                   f"compare/{v.BASE.upper()}...{HEAD}"]
+        with patch.object(v.subprocess, "run") as transport:
+            for path in invalid:
+                with self.subTest(path=path), self.assertRaisesRegex(ValueError, "Invalid API path"):
+                    v.GitHub().raw(path)
+            transport.assert_not_called()
+
     def test_complete_pagination(self):
         api = v.GitHub()
         with patch.object(api, "get", side_effect=[
