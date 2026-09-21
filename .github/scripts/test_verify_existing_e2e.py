@@ -65,7 +65,10 @@ class Fixture:
                              base=dict(sha=v.BASE, ref="main", repo={"full_name": v.REPO})),
             "git/ref/heads/main": {"object": {"sha": v.BASE}},
             f"compare/{v.BASE}...{HEAD}": dict(status="ahead", merge_base_commit={"sha": v.BASE}),
-            f"git/commits/{HEAD}": dict(parents=[{"sha": v.BOOTSTRAP}], verification={"verified": True},
+            f"git/commits/{HEAD}": dict(parents=[{"sha": v.REPAIR}], verification={"verified": True},
+                                        author=dict(name="pjscruggs", email="PatrickJScruggs@gmail.com"),
+                                        committer=dict(name="pjscruggs", email="PatrickJScruggs@gmail.com")),
+            f"git/commits/{v.REPAIR}": dict(parents=[{"sha": v.BOOTSTRAP}], verification={"verified": True},
                                         author=dict(name="pjscruggs", email="PatrickJScruggs@gmail.com"),
                                         committer=dict(name="pjscruggs", email="PatrickJScruggs@gmail.com")),
             f"git/commits/{v.BOOTSTRAP}": dict(parents=[{"sha": v.TESTED}], verification={"verified": True},
@@ -220,8 +223,8 @@ class EvidenceTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     v.local_validation(f, HEAD)
 
-    def test_forward_repair_requires_the_exact_two_commit_signed_chain(self):
-        for sha in (HEAD, v.BOOTSTRAP):
+    def test_forward_repair_requires_the_exact_signed_chain(self):
+        for sha in (HEAD, v.REPAIR, v.BOOTSTRAP):
             for mutation in (lambda c: c.update(parents=[]),
                              lambda c: c.update(parents=[{"sha": "d" * 40}]),
                              lambda c: c["parents"].append({"sha": v.BASE}),
@@ -301,6 +304,22 @@ class EvidenceTests(unittest.TestCase):
 
 
 class TransportTests(unittest.TestCase):
+    def test_only_exact_historical_log_allows_captured_escape_bytes(self):
+        raw_log = b"reviewed\x1b[36mcloud output\x1b[0m\r\n"
+        paths = [f"actions/jobs/{v.HISTORICAL_JOB}/logs", "actions/jobs/1/logs",
+                 f"actions/jobs/{v.HISTORICAL_JOB}/logs?extra=1", "pulls/53"]
+        with patch.object(v.subprocess, "run") as transport, patch("builtins.print") as output:
+            transport.return_value.returncode = 0
+            transport.return_value.stdout = raw_log
+            for path in paths:
+                self.assertEqual(v.GitHub().raw(path), raw_log)
+                command = transport.call_args.args[0]
+                self.assertEqual(command[:4], ["gh", "api", "--method", "GET"])
+                self.assertEqual("--allow-escape-sequences" in command,
+                                 path == f"actions/jobs/{v.HISTORICAL_JOB}/logs")
+                self.assertTrue(transport.call_args.kwargs["capture_output"])
+            output.assert_not_called()
+
     def test_current_authority_uses_real_transport_for_exact_sha_comparison(self):
         fixture = Fixture()
         def respond(command, **_kwargs):

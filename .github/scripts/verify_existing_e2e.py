@@ -33,6 +33,7 @@ BRANCH = "feat/v2-major-release"
 PR = 53
 TESTED = "2ea38212529a704462df8ebaf9061596e9117e34"
 BOOTSTRAP = "aa91cf17a30ebf576ecb719c3fbbcecea9d51ead"
+REPAIR = "f8079b796798c9a5aa65fcd331ccbb3826d2660f"
 BASE = "1f1c50d00022f378313672e285bc3fd32ed2b41a"
 INFRASTRUCTURE = "b60588036a577b6f840ac83c3526adcae8cdcfe3"
 RUNTIME_CORE = "26c3370d6c7e8f595d2041a460deba26e801f952"
@@ -79,8 +80,13 @@ class GitHub:
         immutable_comparison = re.fullmatch(r"compare/[0-9a-f]{40}\.\.\.[0-9a-f]{40}", path)
         require(not path.startswith("/") and (".." not in path or immutable_comparison),
                 "Invalid API path")
+        command = ["gh", "api", "--method", "GET", f"repos/{REPO}/{path}"]
+        if path == f"actions/jobs/{HISTORICAL_JOB}/logs":
+            # These exact reviewed bytes stay captured for digest verification;
+            # never print their embedded terminal escape sequences.
+            command.append("--allow-escape-sequences")
         result = subprocess.run(
-            ["gh", "api", "--method", "GET", f"repos/{REPO}/{path}"],
+            command,
             capture_output=True, check=False, timeout=45,
         )
         require(result.returncode == 0, f"GitHub read failed: {path}")
@@ -212,10 +218,11 @@ def current_authority(api, sha):
     comparison = api.get(f"compare/{BASE}...{sha}")
     require(comparison.get("merge_base_commit", {}).get("sha") == BASE and
             comparison.get("status") == "ahead", "Candidate does not contain current base")
-    # Preserve the first signed bootstrap without rewriting history. Only its
-    # single direct, reviewed repair is accepted; arbitrary ancestry is not.
+    # Preserve both signed bootstrap commits without rewriting history. Only
+    # this fixed chain plus its direct reviewed repair is accepted.
     reviewed_commit(api, BOOTSTRAP, TESTED)
-    reviewed_commit(api, sha, BOOTSTRAP)
+    reviewed_commit(api, REPAIR, BOOTSTRAP)
+    reviewed_commit(api, sha, REPAIR)
 
 
 LOCAL_STEPS = {
