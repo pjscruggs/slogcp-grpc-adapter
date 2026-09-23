@@ -32,6 +32,7 @@ type Logger struct {
 	policy   LoggerPolicy
 }
 
+// loggerConfig holds the adapter logger options selected at construction.
 type loggerConfig struct {
 	logger      *slog.Logger
 	levelMapper func(grpc_logging.Level) slog.Level
