@@ -24,6 +24,7 @@ import (
 	"github.com/pjscruggs/slogcp/v2"
 )
 
+// recordingHandler captures slog records written by the adapter.
 type recordingHandler struct {
 	records []slog.Record
 }
