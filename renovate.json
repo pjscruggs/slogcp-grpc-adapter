@@ -99,8 +99,7 @@
       "matchManagers": ["gomod"],
       "matchDatasources": ["go"],
       "matchPackageNames": [
-        "github.com/apache/skywalking-eyes",
-        "github.com/godoc-lint/godoc-lint"
+        "github.com/apache/skywalking-eyes"
       ],
       "matchFileNames": [".github/tools/go.mod"],
       "matchJsonata": ["$not(isVulnerabilityAlert = true or $exists(vulnerabilityFixVersion))"],
