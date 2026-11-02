@@ -154,7 +154,7 @@ class RenovatePolicyTests(unittest.TestCase):
             re.findall(r"^\s*([^\s]+/cmd/[^\s]+)\s*$", self.tools_go_mod, re.MULTILINE)
         )
         expected_tools = {
-            "github.com/apache/skywalking-eyes/cmd/license-eye",
+            "github.com/pjscruggs/slogcp-grpc-adapter/v2/.github/tools/cmd/header",
             "github.com/godoc-lint/godoc-lint/cmd/godoclint",
             "github.com/golangci/golangci-lint/v2/cmd/golangci-lint",
             "golang.org/x/tools/cmd/goimports",
