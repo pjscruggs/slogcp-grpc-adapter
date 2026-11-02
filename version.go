@@ -16,4 +16,4 @@ package slogcpadapter
 
 // Version is the current version of the slogcp gRPC adapter.
 // It follows semantic versioning (https://semver.org/).
-const Version = "v2.0.2"
+const Version = "v2.0.3"
