@@ -4,7 +4,7 @@ go 1.27.4
 
 require (
 	github.com/pjscruggs/slogcp-grpc-adapter/v2 v2.0.0-unpublished
-	github.com/pjscruggs/slogcp/v2 v2.0.4
+	github.com/pjscruggs/slogcp/v2 v2.0.5
 	google.golang.org/grpc v1.85.0
 )
 
