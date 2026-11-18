@@ -10,7 +10,7 @@ require (
 
 require (
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
-	github.com/GoogleCloudPlatform/opentelemetry-operations-go/propagator v0.62.0 // indirect
+	github.com/GoogleCloudPlatform/opentelemetry-operations-go/propagator v0.63.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -20,10 +20,10 @@ require (
 	go.opentelemetry.io/otel/log v1.47.0 // indirect
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
-	golang.org/x/net v0.62.0 // indirect
+	golang.org/x/net v0.63.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261110000943-09e21b237f2c // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261116203732-fd2c7689a808 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 
